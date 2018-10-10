@@ -55,7 +55,8 @@ class BatchData:
 
         def _gen_one_data(thread, max_thread):
             def gen_one_data_wrapper():
-                gen_one_data.thread_prepare(thread, max_thread)
+                if hasattr(gen_one_data, 'thread_prepare'):
+                    gen_one_data.thread_prepare(thread, max_thread)
                 while True:
                     self.queue.put(gen_one_data())
             return gen_one_data_wrapper

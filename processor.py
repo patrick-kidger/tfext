@@ -11,7 +11,7 @@ tft = tf.train
 import tools
 
 
-class ProcessorBase(tools.SubclassTrackerMixin('__name__')):
+class ProcessorBase(tools.subclass_tracker('__name__')):
     """Base class for preprocessors."""
     
     save_attr = []

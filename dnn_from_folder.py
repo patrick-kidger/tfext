@@ -68,11 +68,13 @@ def _dnn_hyperparameters_from_dir(dir_name):
 def dnn_factory_from_model_dir(model_dir, **kwargs):
     """Creates a DNN from the :model_dir: argument. Any additional keyword
     arguments provided override the details of the DNN found."""
-    
+
+    if not os.path.isdir(model_dir):
+        raise RuntimeError(f'Model dir {model_dir} does not exist')
+
     if model_dir[-1] in ('/', '\\'):
         model_dir = model_dir[:-1]
-    model_dir_split = tools.split(['/', '\\'], model_dir)
-    dir_name = model_dir_split[-1]
+    dir_name = tools.split(['/', '\\'], model_dir)[-1]
     # I suspect that we should be able to restore the DNN just from the
     # information saved in the model directory, without needing to know
     # its structure from the directory name...

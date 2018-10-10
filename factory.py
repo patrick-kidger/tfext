@@ -47,7 +47,7 @@ class DNNFactory(RegressorFactoryBase):
     the class before each train/predict/evaluate call.
     """
     
-    def __init__(self, hidden_units, logits, processor=None, 
+    def __init__(self, hidden_units, logits,
                  activation=tf.nn.relu, drop_rate=0.0, 
                  drop_type='dropout', log_steps=100,
                  batch_norm=False, 
@@ -61,8 +61,6 @@ class DNNFactory(RegressorFactoryBase):
         :[int] hidden_units: A list of integers describing the number of
             neurons in each hidden layer.
         :int logits: The number of output logits.
-        :processor: A processor for performing preprocessing to the
-            features and labels. Defaults to no preprocessing.
         :activation: The activation function for the hidden units.
             Defaults to tf.nn.relu.
         :float drop_rate: A number in the interval [0, 1) for the drop rate.
@@ -78,8 +76,11 @@ class DNNFactory(RegressorFactoryBase):
         :dict compile_kwargs: Keyword arguments to be passed on to the call to
             compile during DNN creation.
         """
+
         if compile_kwargs is None:
             compile_kwargs = {}
+        if 'processor' not in compile_kwargs:
+            compile_kwargs['processor'] = pc.IdentityProcessor()
         self.hidden_units = hidden_units
         self.logits = logits
         self.activation = activation

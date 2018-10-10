@@ -9,7 +9,7 @@ tflog = tf.logging
 import tools
 
 from . import dnn_from_folder as d_f
-from . import evalu
+from . import evaluation
 
 
 class RegressorAverager:
@@ -72,8 +72,8 @@ class RegressorAverager:
             top = len(self.regressor_factories)
         top = top - 1
         
-        results = evalu.eval_regressors(self.regressor_factories, 
-                                        gen_one_data, batch_size)
+        results = evaluation.eval_regressors(self.regressor_factories,
+                                             gen_one_data, batch_size)
         loss_values = [result.loss for result in results]            
         thresh_loss = min(sorted(loss_values)[top], thresh)
         
@@ -91,7 +91,7 @@ class RegressorAverager:
         for regressor_factory, mask in zip(self.regressor_factories, self.mask):
             if mask:
                 counter += 1
-                returnval += evalu._eval_regressor(regressor_factory, X, y).prediction
+                returnval += evaluation._eval_regressor(regressor_factory, X, y).prediction
         returnval = returnval / counter
         
         while True:

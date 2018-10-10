@@ -142,8 +142,8 @@ class Sequential:
         return tfe.Estimator(model_fn=model_fn, model_dir=model_dir, **kwargs)
     
     
-def model_dir_str(model_dir, hidden_units, logits, processor, activation, 
-                  uuid=None):
+def model_dir_str(model_dir, hidden_units, logits, processor=pc.IdentityProcessor(),  # mutable default value ok here
+                  activation=tf.nn.relu, uuid=None):
     """Returns a string for the model directory describing the network.
     
     Note that it only stores the information that describes the layout of
