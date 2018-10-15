@@ -2,12 +2,9 @@
 
 import functools as ft
 import os
-
 import tensorflow as tf
-tflog = tf.logging
-
-# https://github.com/patrick-kidger/tools
 import tools
+tflog = tf.logging
 
 from . import factory as fac
 from . import processor as pc

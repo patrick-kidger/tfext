@@ -3,6 +3,11 @@ import tools
 
 
 def concat_activations(activation_funcs, funcname=None):
+    """Creates a new activation function by concatenating the results of the given activation functions together.
+
+    Be careful to distinguish this function from concat_activation.
+    """
+
     @tools.rename(funcname)
     def concat_activation(features, name=None, axis=-1):
         with tf.name_scope(name, "ConcatActivation", [features]) as name:
@@ -13,7 +18,26 @@ def concat_activations(activation_funcs, funcname=None):
 
 
 def minus_activation(activation_func):
+    """Creates a new activation function by negating the first argument given to the activation function.
+
+    e.g. a ReLU would become the function x |-> max{0, -x}
+    """
+
     @tools.rename(f'minus_{activation_func.__name__}')
     def minus(x, *args, **kwargs):
         return activation_func(-x, *args, **kwargs)
     return minus
+
+
+def concat_activation(activation_func):
+    """Creates a new activation function by using the given activation function twice, negating its input the second
+    time, and concatenating the results.
+
+    i.e. the manner in which a CReLU is created from a ReLU.
+
+    Be careful to distinguish this function from concat_activations.
+    """
+
+    minus = minus_activation(activation_func)
+    concat_name = f'concat_{activation_func.__name__}'
+    return concat_activations([activation_func, minus], concat_name)

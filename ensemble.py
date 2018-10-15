@@ -1,12 +1,9 @@
 """Provides a regressor averager to handle an ensemble of regressors."""
 
 import numpy as np
-
 import tensorflow as tf
-tflog = tf.logging
-
-# https://github.com/patrick-kidger/tools
 import tools
+tflog = tf.logging
 
 from . import dnn_from_folder as d_f
 from . import evaluation

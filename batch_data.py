@@ -5,7 +5,6 @@ tf.data.Dataset format expected by TensorFlow.
 import multiprocessing as mp
 import numpy as np
 import os
-
 import tensorflow as tf
 tfd = tf.data
 

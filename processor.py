@@ -2,13 +2,10 @@
 
 import json
 import numpy as np
-
 import tensorflow as tf
+import tools
 tflog = tf.logging
 tft = tf.train
-
-# https://github.com/patrick-kidger/tools
-import tools
 
 
 class ProcessorBase(tools.subclass_tracker('__name__')):

@@ -1,7 +1,8 @@
 # Imports stated explicitly to aid with tracking down them from this file.
 
 from .activation import (concat_activations,
-                         minus_activation)
+                         minus_activation,
+                         concat_activation)
 
 from .batch_data import BatchData
 

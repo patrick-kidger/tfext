@@ -5,12 +5,10 @@ non-TensorFlow regressors.
 """
 
 import tensorflow as tf
+import tools
 tfe = tf.estimator
 tfi = tf.initializers
 tfla = tf.layers
-
-# https://github.com/patrick-kidger/tools
-import tools
 
 from . import dnn_from_seq as d_s
 from . import processor as pc

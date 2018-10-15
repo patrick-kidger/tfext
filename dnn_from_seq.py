@@ -2,7 +2,6 @@
 
 import functools as ft
 import itertools as it
-
 import tensorflow as tf
 tfe = tf.estimator
 tflo = tf.losses

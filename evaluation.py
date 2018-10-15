@@ -1,12 +1,9 @@
 """Provides for testing and evaluating regressors."""
 
 import numpy as np
-
 import tensorflow as tf
-tflog = tf.logging
-
-# https://github.com/patrick-kidger/tools
 import tools
+tflog = tf.logging
 
 from . import batch_data as dg
 
