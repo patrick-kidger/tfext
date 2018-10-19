@@ -8,13 +8,15 @@ tflog = tf.logging
 from . import batch_data as dg
 
 
-def _eval_regressor(regressor_factory, X, y):
+def _eval_regressor(regressor, X, y):
     """Evaluates a regressor on some test data :X:, :y:.
     """
-    
-    regressor = regressor_factory()
-    processor = regressor_factory.compile_kwargs.processor
-    use_tf = regressor_factory.use_tf
+
+    processor = regressor.processor
+    try:
+        use_tf = getattr(regressor, 'use_tf')
+    except AttributeError:
+        use_tf = False
     
     if use_tf:
         data_func = dg.BatchData.to_dataset((X, y))
@@ -41,32 +43,32 @@ def _eval_regressor(regressor_factory, X, y):
     return result
 
 
-def _eval_regressors(regressor_factories, X, y, names=None):
+def _eval_regressors(regressors, X, y, names=None):
     """Evaluates an iterable of regressors on some test data
     :X:, :y:."""
     results = []
     if names is None:
-        names = [None] * len(regressor_factories)
-    for regressor_factory, name in zip(regressor_factories, names):
+        names = [None] * len(regressors)
+    for regressor, name in zip(regressors, names):
         if name is not None:
             tflog.info("Evaluating {}".format(name))
-        result = _eval_regressor(regressor_factory, X, y)
+        result = _eval_regressor(regressor, X, y)
         results.append(result)
         
     return results
 
 
-def eval_regressor(regressor_factory, gen_one_data, batch_size=1):
+def eval_regressor(regressor, gen_one_data, batch_size=1):
     """Evaluates a regressor on some test data of size :batch_size:
     generated from :gen_one_data:.
     """
     X, y = dg.BatchData.batch(gen_one_data, batch_size)
-    return _eval_regressor(regressor_factory, X, y)
+    return _eval_regressor(regressor, X, y)
 
 
-def eval_regressors(regressor_factories, gen_one_data, batch_size=1, names=None):
+def eval_regressors(regressors, gen_one_data, batch_size=1, names=None):
     """Evaluates an iterable of regressors on some test data of size
     :batch_size: generated from :gen_one_data:.
     """
     X, y = dg.BatchData.batch(gen_one_data, batch_size)
-    return _eval_regressors(regressor_factories, X, y, names=names)
+    return _eval_regressors(regressors, X, y, names=names)

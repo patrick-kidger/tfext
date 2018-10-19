@@ -4,7 +4,7 @@ tfe = tf.estimator
 tft = tf.train
 
 
-def train_adaptively(dnn_factory, input_fn, max_steps=1000,
+def train_adaptively(model, input_fn, max_steps=1000,
                      learning_rate=0.01, gradient_clip=1.0,
                      learning_divisor=10, gradient_divisor=10,
                      steps_without_decrease=1000,
@@ -12,7 +12,7 @@ def train_adaptively(dnn_factory, input_fn, max_steps=1000,
     learning_rate = learning_rate
     gradient_clip = gradient_clip
     while True:
-        dnn = dnn_factory(gradient_clip=gradient_clip, learning_rate=learning_rate, **kwargs)
+        dnn = model.compile(gradient_clip=gradient_clip, learning_rate=learning_rate, **kwargs)
         hook = tfce.stop_if_no_decrease_hook(dnn, 'loss', steps_without_decrease, run_every_secs=None,
                                              run_every_steps=2 * steps_without_decrease)
         train_spec = tfe.TrainSpec(input_fn=input_fn, max_steps=max_steps)#, hooks=[hook])
@@ -28,11 +28,11 @@ def train_adaptively(dnn_factory, input_fn, max_steps=1000,
 
 import numpy as np
 from . import batch_data
-from . import factory
+from . import dnn_from_seq as ds
 def test():
     def f():
         X = np.array([np.random.uniform(-3, 3)])
         return X, np.square(X)
     i = batch_data.BatchData(f)
-    df = factory.DNNFactory((8, 8, 8), 1)
-    return df, i
+    model = ds.define_dnn((8, 8, 8), 1)
+    return model, i
