@@ -26,3 +26,5 @@ from .processor import (ProcessorBase,
                         ScaleOverall,
                         NormalisationOverall,
                         ProcessorSavingHook)
+
+from .train import train_adaptively

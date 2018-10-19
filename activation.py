@@ -9,12 +9,12 @@ def concat_activations(activation_funcs, funcname=None):
     """
 
     @tools.rename(funcname)
-    def concat_activation(features, name=None, axis=-1):
+    def concat(features, name=None, axis=-1, **kwargs):
         with tf.name_scope(name, "ConcatActivation", [features]) as name:
             features = tf.convert_to_tensor(features, name="features")
-            activations = [activation_func(features) for activation_func in activation_funcs]
+            activations = [activation_func(features, **kwargs) for activation_func in activation_funcs]
             return tf.concat(activations, axis, name=name)
-    return concat_activation
+    return concat
 
 
 def minus_activation(activation_func):
@@ -41,3 +41,8 @@ def concat_activation(activation_func):
     minus = minus_activation(activation_func)
     concat_name = f'concat_{activation_func.__name__}'
     return concat_activations([activation_func, minus], concat_name)
+
+
+cleaky_relu = concat_activation(tf.nn.leaky_relu)
+celu = concat_activation(tf.nn.elu)
+cselu = concat_activation(tf.nn.selu)

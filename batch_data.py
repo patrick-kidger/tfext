@@ -86,6 +86,9 @@ class BatchData:
             return ds.batch(self.batch_size)
         else:
             raise ex.TerminatedBatchData
+
+    def __del__(self):
+        self.terminate()
     
     def terminate(self):
         """Terminates the processes that this instance uses."""
