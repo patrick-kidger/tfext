@@ -5,26 +5,20 @@ import tensorflow as tf
 import tools
 tflog = tf.logging
 
-from . import dnn_from_folder as d_f
+from . import dnn_from_folder as df
 from . import evaluation
 
 
 class RegressorAverager:
-    """Regressor that averages the results of other regressors to make its
-    prediction. It is capable of using both TensorFlow-based regressors
-    and non-TensorFlow-based regressors as it expects regressor factories,
-    and the difference between them is handled by the factory wrapper.
-    """
+    """Regressor that averages the results of other regressors to make its prediction."""
     
-    def __init__(self, regressor_factories, mask=None, **kwargs):
-        """Should be passed an iterable of :regressor_factories:. It will
-        make predictions according to their average.
+    def __init__(self, regressors, mask=None, **kwargs):
+        """Should be passed an iterable of :regressors:. It will make predictions according to their average.
         
-        May also pass a :mask: argument, which should be a tuple of bools
-        the same length as the number of regressors, specifying whether or
-        not particular regressor should be used when making predictions.
+        May also pass a :mask: argument, which should be a tuple of bools the same length as the number of regressors,
+        specifying whether or not a particular regressor should be used when making predictions.
         """
-        self.regressor_factories = tuple(regressor_factories)
+        self.regressors = tuple(regressors)
         self.mask = None
         self.reset_mask()
         if mask is not None:
@@ -33,7 +27,7 @@ class RegressorAverager:
         
     def set_mask(self, mask):
         """Sets a mask to only use some of the regressors."""
-        assert len(mask) == len(self.regressor_factories)
+        assert len(mask) == len(self.regressors)
         if not mask:
             tflog.warn('Setting empty mask for {}.'.format(self.__class__.__name__))
         self.mask = tuple(mask)
@@ -41,23 +35,19 @@ class RegressorAverager:
         
     def reset_mask(self):
         """Resets the mask, so as to use all regressors."""
-        self.mask = [True for _ in range(len(self.regressor_factories))]
+        self.mask = [True for _ in range(len(self.regressors))]
         return self  # for chaining
     
-    def auto_mask(self, gen_one_data, batch_size, thresh=None, top=None):
-        """Automatically creates a mask to only use the regressors that
-        are deemed to be 'good'.
+    def auto_mask(self, gen_one_data, batch_size=1000, *, thresh=None, top=None):
+        """Automatically creates a mask to only use the regressors that are deemed to be 'good'.
         
-        The function :gen_one_data: will be called :batch_size: times to 
-        generate the  (feature, label) pairs on which the regressors are 
-        tested.
+        The function :gen_one_data: will be called :batch_size: times to generate the  (feature, label) pairs on which
+        the regressors are tested.
         
-        At least one of :thresh: or :top: should be passed. The best :top:
-        number of regressors whose loss is smaller than :thresh: will be
-        deemed to be 'good'. If :thresh: is None (which it defaults to),
-        then simply the best :top: regressors will be used. If :top: is
-        None (which it defaults to) then simply every regressor whose loss
-        is at least :thresh: will be used.
+        Precisely one of :thresh: or :top: should be passed. The best :top: number of regressors whose loss is smaller
+        than :thresh: will be deemed to be 'good'. If :thresh: is None (which it defaults to), then simply the best
+        :top: regressors will be used. If :top: is None (which it defaults to) then simply every regressor whose loss is
+        at least :thresh: will be used.
         """
         if thresh is None and top is None:
             raise RuntimeError('At least one of thresh or top must be not '
@@ -66,11 +56,10 @@ class RegressorAverager:
         if thresh is None:
             thresh = np.inf
         if top is None:
-            top = len(self.regressor_factories)
+            top = len(self.regressors)
         top = top - 1
         
-        results = evaluation.eval_regressors(self.regressor_factories,
-                                             gen_one_data, batch_size)
+        results = evaluation.eval_regressors(self.regressors, gen_one_data, batch_size)
         loss_values = [result.loss for result in results]            
         thresh_loss = min(sorted(loss_values)[top], thresh)
         
@@ -85,24 +74,24 @@ class RegressorAverager:
         
         returnval = tools.AddBase()
         counter = 0
-        for regressor_factory, mask in zip(self.regressor_factories, self.mask):
+        for regressor, mask in zip(self.regressors, self.mask):
             if mask:
                 counter += 1
-                returnval += evaluation._eval_regressor(regressor_factory, X, y).prediction
+                returnval += evaluation._eval_regressor(regressor, X, y).prediction
         returnval = returnval / counter
         
         while True:
             yield returnval
 
     @classmethod
-    def from_dir(cls, dir_, gen_data=None, thresh=None, batch_size=1000):
-        """Creates an average regressor from all regressors in a specified
-        directory.
-        """
-        
-        dnn_factories, names = d_f.dnn_factories_from_dir(dir_)
-        self = cls(regressor_factories=dnn_factories)
-        if gen_data is not None and thresh is not None:
-            self.auto_mask(gen_data, thresh)
+    def from_dir(cls, dir_, compile_kwargs=None, gen_one_data=None, batch_size=1000, *, thresh=None, top=None):
+        """Creates an average regressor from all regressors in a specified directory."""
+
+        if compile_kwargs is None:
+            compile_kwargs = {}
+        models, names = df.models_from_dir(dir_)
+        self = cls(regressors=[model.compile(**compile_kwargs) for model in models])
+        if gen_one_data is not None:
+            self.auto_mask(gen_one_data=gen_one_data, batch_size=batch_size, thresh=thresh, top=top)
             
         return self

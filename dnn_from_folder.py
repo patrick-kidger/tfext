@@ -32,7 +32,7 @@ def _dnn_hyperparameters_from_dir(dir_name):
     
     processor_name = rest[0]
     processor_class = pc.ProcessorBase.find_subclass(processor_name)
-    details.processor = processor_class()
+    details.processor = lambda: processor_class()
     
     activation_name = rest[1].lower()
     
@@ -75,9 +75,9 @@ def model_from_model_dir(model_dir, **kwargs):
     # its structure from the directory name...
     details, uuid = _dnn_hyperparameters_from_dir(dir_name)
     details.update(kwargs)
-    model = ds.Sequential.define_dnn(hidden_units=details.hidden_units, logits=details.logits,
-                                     activation=details.activation, drop_rate=0.0,
-                                     processor=details.processor, model_dir=model_dir)
+    model = ds.Network.define_dnn(hidden_units=details.hidden_units, logits=details.logits,
+                                  activation=details.activation, drop_rate=0.0,
+                                  processor=details.processor, model_dir=model_dir)
     return model
 
 

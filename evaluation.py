@@ -12,22 +12,14 @@ def _eval_regressor(regressor, X, y):
     """Evaluates a regressor on some test data :X:, :y:.
     """
 
-    processor = regressor.processor
-    try:
-        use_tf = getattr(regressor, 'use_tf')
-    except AttributeError:
-        use_tf = False
-    
-    if use_tf:
-        data_func = dg.BatchData.to_dataset((X, y))
-    else:
+    if hasattr(regressor, 'no_tf'):
         data_func = lambda: (X, y)
-    
-    with processor.training(False):
-        predictor = regressor.predict(input_fn=data_func,
-                                      yield_single_examples=False)
-        prediction_before_postprocessing = next(predictor)
-        prediction = processor.inverse_transform(X, prediction_before_postprocessing)
+    else:
+        data_func = dg.BatchData.to_dataset((X, y))
+
+    predictor = regressor.predict(input_fn=data_func,
+                                  yield_single_examples=False)
+    prediction = next(predictor)
         
     diff = prediction - y
     squared_error = np.square(diff)
@@ -46,6 +38,7 @@ def _eval_regressor(regressor, X, y):
 def _eval_regressors(regressors, X, y, names=None):
     """Evaluates an iterable of regressors on some test data
     :X:, :y:."""
+
     results = []
     if names is None:
         names = [None] * len(regressors)
@@ -54,7 +47,6 @@ def _eval_regressors(regressors, X, y, names=None):
             tflog.info("Evaluating {}".format(name))
         result = _eval_regressor(regressor, X, y)
         results.append(result)
-        
     return results
 
 

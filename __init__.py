@@ -6,10 +6,10 @@ from .activation import (concat_activations,
 
 from .batch_data import BatchData
 
-from .dnn_from_folder import (dnn_factory_from_model_dir,
-                              dnn_factories_from_dir)
+from .dnn_from_folder import (model_from_model_dir,
+                              models_from_dir)
 
-from .dnn_from_seq import (Sequential,
+from .dnn_from_seq import (Network,
                            create_dnn,
                            model_dir_str)
 

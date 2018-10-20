@@ -13,24 +13,19 @@ class ProcessorBase(tools.subclass_tracker('__name__')):
     
     save_attr = []
     checkpoint_filename = 'processor-checkpoint.ckpt'
-    
-    def __init__(self, training=True, **kwargs):
-        self._training = training
+
+    def __init__(self, **kwargs):
+        self._training = None
         super(ProcessorBase, self).__init__(**kwargs)
         
-    def init(self, model_dir):
+    def init(self, model_dir, training):
         """Initialises Python and TensorFlow variables."""
         # super().init() should be called before the subclass' init()
         self.load(model_dir)
-        
-    def training(self, val):
-        """Provides a context to set the training variable to :val:."""
-        return tools.set_context_variables(self, ('_training',), val)
+        self._training = training
     
-    def transform(self, X, y):
+    def transform(self, X):
         """Processes the data."""
-        # Note that y may be None during prediction; make sure transform is
-        # appropriately defined.
         raise NotImplementedError
         
     def inverse_transform(self, X, y):
@@ -95,11 +90,11 @@ class ProcessorBase(tools.subclass_tracker('__name__')):
 class IdentityProcessor(ProcessorBase):
     """Performs no processing."""
     
-    def transform(self, X, y):
-        return X, y
+    def transform(self, X):
+        return tf.identity(X)
     
     def inverse_transform(self, X, y):
-        return y
+        return tf.identity(y)
   
     
 class ScaleOverall(ProcessorBase):
@@ -107,21 +102,21 @@ class ScaleOverall(ProcessorBase):
     
     save_attr = ['mean', 'extent', 'momentum', '_started']
     
-    def __init__(self, momentum=0.99, **kwargs):
+    def __init__(self, momentum=0.999, **kwargs):
         self.momentum = momentum
         self.mean = 0.0
         self.extent = 1.0
         self._started = False
         super(ScaleOverall, self).__init__(**kwargs)
         
-    def init(self, model_dir):
-        super(ScaleOverall, self).init(model_dir)
+    def init(self, model_dir, training):
+        super(ScaleOverall, self).init(model_dir, training)
         self.momentum_tf = tf.Variable(self.momentum, trainable=False, dtype=tf.float64)
         self.mean_tf = tf.Variable(self.mean, trainable=False, dtype=tf.float64)
         self.extent_tf = tf.Variable(self.extent, trainable=False, dtype=tf.float64)
         self._started_tf = tf.Variable(self._started, trainable=False)
         
-    def transform(self, X, y):
+    def transform(self, X):
         def first_time():
             assignment = self._started_tf.assign(True)
             with tf.control_dependencies([assignment]):
@@ -142,10 +137,8 @@ class ScaleOverall(ProcessorBase):
             mean, extent = tf.cond(tf.equal(self._started_tf, False), first_time, later_times)
         else:
             mean, extent = self.mean_tf, self.extent_tf
-        
-        X_scaled = (X - mean) / extent
-        y_scaled =  None if y is None else (y - mean) / extent
-        return X_scaled, y_scaled
+
+        return (X - mean) / extent
     
     def inverse_transform(self, X, y):
         return (y * self.extent) + self.mean
@@ -158,21 +151,21 @@ class NormalisationOverall(ProcessorBase):
     
     save_attr = ['mean', 'stddev', 'momentum', '_started']
     
-    def __init__(self, momentum=0.99, **kwargs):
+    def __init__(self, momentum=0.999, **kwargs):
         self.momentum = momentum
         self.mean = 0.0
         self.stddev = 1.0
         self._started = False
         super(NormalisationOverall, self).__init__(**kwargs)
         
-    def init(self, model_dir):
-        super(NormalisationOverall, self).init(model_dir)
+    def init(self, model_dir, training):
+        super(NormalisationOverall, self).init(model_dir, training)
         self.momentum_tf = tf.Variable(self.momentum, trainable=False, dtype=tf.float64)
         self.mean_tf = tf.Variable(self.mean, trainable=False, dtype=tf.float64)
         self.stddev_tf = tf.Variable(self.stddev, trainable=False, dtype=tf.float64)
         self._started_tf = tf.Variable(self._started, trainable=False)
         
-    def transform(self, X, y):
+    def transform(self, X):
         def first_time():
             assignment = self._started_tf.assign(True)
             with tf.control_dependencies([assignment]):
@@ -193,10 +186,8 @@ class NormalisationOverall(ProcessorBase):
             mean, stddev = tf.cond(tf.equal(self._started_tf, False), first_time, later_times)
         else:
             mean, stddev = self.mean_tf, self.stddev_tf
-            
-        X_scaled = (X - mean) / stddev
-        y_scaled = None if y is None else (y - mean) / stddev
-        return X_scaled, y_scaled
+
+        return (X - mean) / stddev
     
     def inverse_transform(self, X, y):
         return (y * self.stddev) + self.mean
