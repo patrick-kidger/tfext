@@ -53,7 +53,7 @@ class Network:
         self._layer_train = []
         self.processor = lambda: pc.IdentityProcessor()
         self.model_dir = None
-        # self.compile_kwargs = tools.Object()
+        self.compile_kwargs = tools.Object()
         
     def add(self, layer):
         """Add a layer to the network."""
@@ -75,27 +75,39 @@ class Network:
         if model_dir is not None:
             self.model_dir = model_dir
 
-    # def add_compile_kwargs(self, **kwargs):
-    #     self.update_compile_kwargs(kwargs)
-    #
-    # def update_compile_kwargs(self, dct):
-    #     self.compile_kwargs.update(dct)
-    #
-    # def reset_compile_kwargs(self):
-    #     self.compile_kwargs = tools.Object()
+    def add_compile_kwargs(self, **kwargs):
+        """Alternative default keyword arguments may be set for Sequential.compile for this instance of Sequential.
+        Pass them as :**kwargs: here.
+        """
+        self.compile_kwargs.update(kwargs)
+
+    def reset_compile_kwargs(self):
+        """Reset the default keyword arguments for Sequential.compile."""
+        self.compile_kwargs = tools.Object()
         
-    def compile(self, optimizer=None, loss_fn=tflo.mean_squared_error, gradient_clip=None, learning_rate=None,
-                **kwargs):
+    def compile(self, optimizer=None, loss_fn=None, gradient_clip=None, learning_rate=None, **kwargs):
         """Takes its abstract neural network definition and compiles it into a tf.estimator.Estimator.
-        
+
         May be given an :optimizer:, defaulting to tf.train.AdamOptimizer().
         May be given a :loss_fn:, defaulting to tf.losses.mean_squared_error.
         May be given a :gradient_clip:, defaulting to no clipping.
         May be given a :learning_rate:, which will set the learning rate of the default optimizer. Will be ignored if an
             actual optimizer is passed as well.
-        
+
         Any additional kwargs are passed into the creation of the tf.estimator.Estimator.
         """
+
+        if optimizer is None and 'optimizer' in self.compile_kwargs:
+            optimizer = self.compile_kwargs.optimizer
+        if gradient_clip is None and 'gradient_clip' in self.compile_kwargs:
+            gradient_clip = self.compile_kwargs.gradient_clip
+        if learning_rate is None and 'learning_rate' in self.compile_kwargs:
+            learning_rate = self.compile_kwargs.learning_rate
+        if loss_fn is None:
+            if 'loss_fn' in self.compile_kwargs:
+                loss_fn = self.compile_kwargs.loss_fn
+            else:
+                loss_fn = tflo.mean_squared_error
             
         def model_fn(features, labels, mode):
             # Create processor variables
@@ -130,25 +142,24 @@ class Network:
             loss = loss_fn(labels, predicted_labels)
 
             if mode == tfe.ModeKeys.TRAIN:
-                nonlocal optimizer
                 if optimizer is None:
                     if learning_rate is None:
-                        optimizer = tft.AdamOptimizer()
+                        optimizer_ = tft.AdamOptimizer()
                     else:
-                        optimizer = tft.AdamOptimizer(learning_rate=learning_rate)
+                        optimizer_ = tft.AdamOptimizer(learning_rate=learning_rate)
+                else:
+                    optimizer_ = optimizer
 
                 g_step = tft.get_global_step()
                 if gradient_clip is None:
-                    train_op = optimizer.minimize(loss=loss, global_step=g_step)
+                    train_op = optimizer_.minimize(loss=loss, global_step=g_step)
                 else:
                     # Perform Gradient clipping
                     update_ops = tf.get_collection(tf.GraphKeys.UPDATE_OPS)
                     with tf.control_dependencies(update_ops):
-                        gradients, variables = zip(*optimizer.compute_gradients(loss))
-#                         gradients0 = tf.Print(gradients[0], [tf.global_norm(gradients)], 'Global norm: ')
-#                         gradients = tuple([gradients0, *gradients[1:]])
+                        gradients, variables = zip(*optimizer_.compute_gradients(loss))
                         gradients, _ = tf.clip_by_global_norm(gradients, gradient_clip)
-                        train_op = optimizer.apply_gradients(zip(gradients, variables), global_step=g_step)
+                        train_op = optimizer_.apply_gradients(zip(gradients, variables), global_step=g_step)
                 if self.model_dir is None:
                     training_hooks = []
                 else:
@@ -192,6 +203,7 @@ class Network:
         return self
 
 
+# TODO? Remove? It's not a terribly useful function, and the docstring is out of date.
 def create_dnn(hidden_units, logits, activation=tf.nn.relu, drop_rate=0.0, processor=None, model_dir=None,
                log_steps=100, **kwargs):
     """Simple shortcut for creating a DNN via the Network interface.
