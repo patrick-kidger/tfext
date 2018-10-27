@@ -163,7 +163,7 @@ class Network:
                 if self.model_dir is None:
                     training_hooks = []
                 else:
-                    training_hooks = [pc.ProcessorSavingHook(self.processor, self.model_dir)]
+                    training_hooks = [pc.ProcessorSavingHook(processor, self.model_dir)]
                 return tfe.EstimatorSpec(mode=mode, loss=loss, train_op=train_op,
                                          training_hooks=training_hooks)
             

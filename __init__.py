@@ -2,14 +2,19 @@
 
 from .activation import (concat_activations,
                          minus_activation,
-                         concat_activation)
+                         concat_activation,
+                         cleaky_relu,
+                         celu,
+                         cselu)
 
 from .batch_data import BatchData
 
 from .dnn_from_folder import (model_from_model_dir,
                               models_from_dir)
 
-from .dnn_from_seq import (Network,
+from .dnn_from_seq import (dense,
+                           dropout,
+                           Network,
                            create_dnn,
                            model_dir_str)
 
