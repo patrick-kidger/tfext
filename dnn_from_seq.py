@@ -203,6 +203,45 @@ class Network:
         return self
 
 
+class Subnetwork:
+
+    def __init__(self):
+        self._layer_funcs = []
+        self._layer_train = []
+
+    def add(self, layer):
+        self._layer_funcs.append(layer)
+        self._layer_train.append(False)
+
+    def add_train(self, layer):
+        self.add(layer)
+        self._layer_train[-1] = True
+
+    def __call__(self, inputs, training=False):
+        layers = [inputs]
+
+        for prev_layer, layer_func, train in zip(layers, self._layer_funcs,
+                                                 self._layer_train):
+            if train:
+                layer = layer_func(inputs=prev_layer, training=training)
+            else:
+                layer = layer_func(inputs=prev_layer)
+
+            # Deliberately using the generator nature of zip to add elements
+            # to the layers list as we're iterating through it.
+            # https://media.giphy.com/media/3oz8xtBx06mcZWoNJm/giphy.gif
+            layers.append(layer)
+
+        return layers[-1]
+
+
+def concat(*subnetworks):
+    def concat_wrapper(inputs, training=False):
+        logits = [subnetwork(inputs=inputs, training=training) for subnetwork in subnetworks]
+        return tf.concat(logits, 1)  # axis 0 is the batch size
+    return concat_wrapper
+
+
 # TODO? Remove? It's not a terribly useful function, and the docstring is out of date.
 def create_dnn(hidden_units, logits, activation=tf.nn.relu, drop_rate=0.0, processor=None, model_dir=None,
                log_steps=100, **kwargs):
