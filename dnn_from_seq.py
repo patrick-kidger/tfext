@@ -13,6 +13,9 @@ import tools
 from . import processor as pc
 
 
+DEBUG = 'debug'
+
+
 def dense(*args, **kwargs):
     def dense(*args_, **kwargs_):
         return tfla.Dense(*args, **kwargs)(*args_, **kwargs_)
@@ -29,29 +32,43 @@ class Subnetwork:
     def __init__(self, name=None, **kwargs):
         self._layer_funcs = []
         self._layer_train = []
+        self._layer_debug = []
+        self._layer_mode = []
+        self._layer_params = []
         self._name = name
         super(Subnetwork, self).__init__(**kwargs)
 
-    def add(self, layer):
-        """Add a layer to the network."""
+    def add(self, layer, train=False, debug=False, mode=False, params=False):
+        """Add a layer to the network. Pass :train: as True if the layer needs to know if the network is in training or
+        not. Pass :debug: as True is the layer needs to know if the network is in debug mode or not.
+        """
         self._layer_funcs.append(layer)
-        self._layer_train.append(False)
+        self._layer_train.append(train)
+        self._layer_debug.append(debug)
+        self._layer_mode.append(mode)
+        self._layer_params.append(params)
 
-    def add_train(self, layer):
-        """Add a layer to the network which needs to know if the network is in training or not."""
-        self.add(layer)
-        self._layer_train[-1] = True
-
-    def __call__(self, inputs, training=False):
+    def __call__(self, inputs, mode, params=None):
+        try:
+            debug = params['dynamic'].debug
+        except (KeyError, TypeError):
+            debug = False
         with tf.variable_scope(self._name, self.__class__.__name__):
             prev_layer = inputs
 
-            for layer_func, train in zip(self._layer_funcs, self._layer_train):
-                if train:
-                    layer = layer_func(inputs=prev_layer, training=training)
-                else:
-                    layer = layer_func(inputs=prev_layer)
-                prev_layer = layer
+            for layer_func, train_, debug_, mode_, params_ in zip(self._layer_funcs, self._layer_train,
+                                                                  self._layer_debug, self._layer_mode,
+                                                                  self._layer_params):
+                extra_kwargs = {}
+                if train_:
+                    extra_kwargs['training'] = mode == tfe.ModeKeys.TRAIN
+                if debug_:
+                    extra_kwargs['debugging'] = debug
+                if mode_:
+                    extra_kwargs['mode'] = mode
+                if params_:
+                    extra_kwargs['params'] = params
+                prev_layer = layer_func(inputs=prev_layer, **extra_kwargs)
 
         return prev_layer
 
@@ -72,19 +89,39 @@ class Subnetwork:
         for units in hidden_units:
             self.add(dense(units=units, activation=activation, kernel_initializer=kernel_initializer))
             if drop_rate != 0:
-                self.add_train(dropout(rate=drop_rate))
+                self.add(dropout(rate=drop_rate), train=True)
         if logits:
             self.add(dense(units=logits, kernel_initializer=kernel_initializer, name='logits'))
 
         return self
 
 
+# Todo: allow mixing of training/debugging/mode inputs to different subnetworks, i.e. when one of them isn't actually a
+# subnetwork.
 def concat(*subnetworks):
-    def concat_wrapper(inputs, training=False):
-        logits = [subnetwork(inputs=inputs, training=training) for subnetwork in subnetworks]
+    def concat_wrapper(inputs, mode, params):
+        logits = [subnetwork(inputs=inputs, mode=mode, params=params) for subnetwork in subnetworks]
         return tf.concat(logits, 1)  # axis 0 is the batch size
-
     return concat_wrapper
+
+
+class DebugEstimator(tfe.Estimator):
+    def __init__(self, *args, **kwargs):
+        super(DebugEstimator, self).__init__(*args, **kwargs)
+        if 'dynamic' in self._params:
+            raise ValueError(f"{self.__class__.__name__} reserves 'dynamic' as a key in params; pleased use a different"
+                             f" key.")
+        else:
+            self._params['dynamic'] = tools.Object(debug=False)
+
+    def debug(self, input_fn, predict_keys=None, hooks=None, checkpoint_path=None, yield_single_examples=True):
+        # Not a pretty hack. Doesn't seem to be a nice way to add extra modes though, sadly.
+        self._params['dynamic'].debug = True
+        for val in self.predict(input_fn, predict_keys, hooks, checkpoint_path, yield_single_examples):
+            self._params['dynamic'].debug = False
+            yield val
+            self._params['dynamic'].debug = True
+        self._params['dynamic'].debug = False
 
 
 # Keras-inspired nice interface, just without the slow speed and lack of 
@@ -94,9 +131,9 @@ class Network(Subnetwork):
     """Defines a neural network. Expected usage is roughly:
     >>> model = Network()
     >>> model.add(dense(units=100, activation=tf.nn.relu))
-    >>> model.add_train(dropout(rate=0.4))
+    >>> model.add(dropout(rate=0.4), train=True)
     >>> model.add(dense(units=50, activation=tf.nn.relu))
-    >>> model.add_train(dropout(rate=0.4))
+    >>> model.add(dropout(rate=0.4), train=True)
     >>> model.add(dense(units=1, activation=tf.nn.relu))
     
     to define the neural network in the abstract (note that the last dense layer are treated as the logits), followed
@@ -159,16 +196,18 @@ class Network(Subnetwork):
             else:
                 loss_fn = tflo.mean_squared_error
             
-        def model_fn(features, labels, mode):
+        def model_fn(features, labels, mode, params=None):
             # Create processor variables
             processor = self.processor()
-            processor.init(model_dir=self.model_dir, training=mode == tfe.ModeKeys.TRAIN)
+            processor.init(model_dir=self.model_dir, mode=mode, params=params)
             
             # Apply any preprocessing to the features
             processed_features = processor.transform(features)
 
-            logits = self(inputs=processed_features, training=mode == tfe.ModeKeys.TRAIN)
+            # Apply the network to the input
+            logits = self(inputs=processed_features, mode=mode, params=params)
 
+            # Apply postprocessing to the results
             predicted_labels = processor.inverse_transform(features, logits)
             
             if mode == tfe.ModeKeys.PREDICT:
@@ -207,7 +246,7 @@ class Network(Subnetwork):
             
             raise ValueError("mode '{}' not understood".format(mode))
                 
-        return tfe.Estimator(model_fn=model_fn, model_dir=self.model_dir, **kwargs)
+        return DebugEstimator(model_fn=model_fn, model_dir=self.model_dir, params={}, **kwargs)
 
     @classmethod
     def define_dnn(cls, hidden_units, logits, activation=tf.nn.relu, drop_rate=0.0, processor=None, model_dir=None):

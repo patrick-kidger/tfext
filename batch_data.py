@@ -109,7 +109,7 @@ class BatchData:
         batch of that size. Its return value is not wrapped in a tf.data.Dataset.
         """
         
-        with cls.context(gen_one_data=data_fn) as self:
+        with cls.context(data_fn=data_fn) as self:
             X_batch = []
             y_batch = []
             for _ in range(batch_size):

@@ -9,15 +9,14 @@ from . import batch_data as dg
 
 
 def _eval_regressor(regressor, X, y):
-    """Evaluates a regressor on some test data :X:, :y:.
-    """
+    """Evaluates a regressor on some test data :X:, :y:."""
 
     if hasattr(regressor, 'no_tf'):
-        data_func = lambda: (X, y)
+        input_fn = lambda: (X, y)
     else:
-        data_func = dg.BatchData.to_dataset((X, y))
+        input_fn = dg.BatchData.to_dataset((X, y))
 
-    predictor = regressor.predict(input_fn=data_func,
+    predictor = regressor.predict(input_fn=input_fn,
                                   yield_single_examples=False)
     prediction = next(predictor)
         
@@ -36,8 +35,7 @@ def _eval_regressor(regressor, X, y):
 
 
 def _eval_regressors(regressors, X, y, names=None):
-    """Evaluates an iterable of regressors on some test data
-    :X:, :y:."""
+    """Evaluates an iterable of regressors on some test data :X:, :y:."""
 
     results = []
     if names is None:
@@ -50,17 +48,13 @@ def _eval_regressors(regressors, X, y, names=None):
     return results
 
 
-def eval_regressor(regressor, gen_one_data, batch_size=1):
-    """Evaluates a regressor on some test data of size :batch_size:
-    generated from :gen_one_data:.
-    """
-    X, y = dg.BatchData.batch(gen_one_data, batch_size)
+def eval_regressor(regressor, data_fn, batch_size=1):
+    """Evaluates a regressor on some test data of size :batch_size: generated from :data_fn:."""
+    X, y = dg.BatchData.batch(data_fn, batch_size)
     return _eval_regressor(regressor, X, y)
 
 
-def eval_regressors(regressors, gen_one_data, batch_size=1, names=None):
-    """Evaluates an iterable of regressors on some test data of size
-    :batch_size: generated from :gen_one_data:.
-    """
-    X, y = dg.BatchData.batch(gen_one_data, batch_size)
+def eval_regressors(regressors, data_fn, batch_size=1, names=None):
+    """Evaluates an iterable of regressors on some test data of size :batch_size: generated from :data_fn:."""
+    X, y = dg.BatchData.batch(data_fn, batch_size)
     return _eval_regressors(regressors, X, y, names=names)

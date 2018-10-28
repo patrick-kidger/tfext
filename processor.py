@@ -5,6 +5,7 @@ import json
 import numpy as np
 import tensorflow as tf
 import tools
+tfe = tf.estimator
 tflog = tf.logging
 tft = tf.train
 
@@ -47,11 +48,11 @@ class ProcessorBase(tools.subclass_tracker('__name__')):
         super(ProcessorBase, self).__init__(**kwargs)
 
     @init_scope
-    def init(self, model_dir, training):
+    def init(self, model_dir, mode, params):
         """Initialises Python and TensorFlow variables."""
         # super().init() should be called before the subclass' init()
         self.load(model_dir)
-        self._training = training
+        self._training = mode == tfe.ModeKeys.TRAIN
 
     @transform_scope
     def transform(self, X):
@@ -143,7 +144,7 @@ class ScaleOverall(ProcessorBase):
         super(ScaleOverall, self).__init__(**kwargs)
 
     @init_scope
-    def init(self, model_dir, training):
+    def init(self, model_dir, training, params):
         super(ScaleOverall, self).init(model_dir, training)
         self.momentum_tf = tf.Variable(self.momentum, trainable=False, dtype=tf.float64)
         self.mean_tf = tf.Variable(self.mean, trainable=False, dtype=tf.float64)
@@ -195,7 +196,7 @@ class NormalisationOverall(ProcessorBase):
         super(NormalisationOverall, self).__init__(**kwargs)
 
     @init_scope
-    def init(self, model_dir, training):
+    def init(self, model_dir, training, params):
         super(NormalisationOverall, self).init(model_dir, training)
         self.momentum_tf = tf.Variable(self.momentum, trainable=False, dtype=tf.float64)
         self.mean_tf = tf.Variable(self.mean, trainable=False, dtype=tf.float64)
