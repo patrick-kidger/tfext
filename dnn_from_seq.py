@@ -73,8 +73,8 @@ class Subnetwork:
             self.add(dense(units=units, activation=activation, kernel_initializer=kernel_initializer))
             if drop_rate != 0:
                 self.add_train(dropout(rate=drop_rate))
-        if not logits:
-            self.add(dense(units=logits, kernel_initializer=kernel_initializer))
+        if logits:
+            self.add(dense(units=logits, kernel_initializer=kernel_initializer, name='logits'))
 
         return self
 

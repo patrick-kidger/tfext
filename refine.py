@@ -6,7 +6,7 @@ from . import dnn_from_seq as ds
 def simple_dnn(hidden_units=(3, 3, 3), logits=1, activation=tf.nn.relu):
     model = ds.Network()
     for layer_size in hidden_units:
-        neurons = [ds.Subnetwork.define_dnn(hidden_units=(1,), logits=0, activation=activation)
+        neurons = [ds.Subnetwork.define_dnn(hidden_units=(1,), logits=None, activation=activation)
                    for _ in range(layer_size)]
         layer = ds.concat(*neurons)
         model.add(layer)

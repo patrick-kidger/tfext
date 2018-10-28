@@ -13,7 +13,7 @@ def init_scope(init_fn):
     @ft.wraps(init_fn)
     def wrapper(self, *args, **kwargs):
         with tf.variable_scope(f"{self._name}Init", 'ProcessorInit'):
-            init_fn(*args, **kwargs)
+            init_fn(self, *args, **kwargs)
     return wrapper
 
 
@@ -21,7 +21,7 @@ def transform_scope(transform_fn):
     @ft.wraps(transform_fn)
     def wrapper(self, *args, **kwargs):
         with tf.name_scope(f"{self._name}Transform", 'ProcessorTransform'):
-            return transform_fn(*args, **kwargs)
+            return transform_fn(self, *args, **kwargs)
     return wrapper
 
 
@@ -29,7 +29,7 @@ def inverse_transform_scope(inverse_transform_fn):
     @ft.wraps(inverse_transform_fn)
     def wrapper(self, *args, **kwargs):
         with tf.name_scope(f"{self._name}InverseTransform", 'ProcessorInverseTransform'):
-            return inverse_transform_fn(*args, **kwargs)
+            return inverse_transform_fn(self, *args, **kwargs)
     return wrapper
 
 

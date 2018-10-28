@@ -9,6 +9,8 @@ from .activation import (concat_activations,
 
 from .batch_data import BatchData
 
+from .data_fn import identity
+
 from .dnn_from_folder import (model_from_model_dir,
                               models_from_dir)
 
