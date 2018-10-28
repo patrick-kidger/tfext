@@ -1,5 +1,6 @@
 """Processors handle data preprocessing before it's fed into the network."""
 
+import functools as ft
 import json
 import numpy as np
 import tensorflow as tf
@@ -8,26 +9,56 @@ tflog = tf.logging
 tft = tf.train
 
 
+def init_scope(init_fn):
+    @ft.wraps(init_fn)
+    def wrapper(self, *args, **kwargs):
+        with tf.variable_scope(f"{self._name}Init", 'ProcessorInit'):
+            init_fn(*args, **kwargs)
+    return wrapper
+
+
+def transform_scope(transform_fn):
+    @ft.wraps(transform_fn)
+    def wrapper(self, *args, **kwargs):
+        with tf.name_scope(f"{self._name}Transform", 'ProcessorTransform'):
+            return transform_fn(*args, **kwargs)
+    return wrapper
+
+
+def inverse_transform_scope(inverse_transform_fn):
+    @ft.wraps(inverse_transform_fn)
+    def wrapper(self, *args, **kwargs):
+        with tf.name_scope(f"{self._name}InverseTransform", 'ProcessorInverseTransform'):
+            return inverse_transform_fn(*args, **kwargs)
+    return wrapper
+
+
 class ProcessorBase(tools.subclass_tracker('__name__')):
     """Base class for preprocessors."""
     
     save_attr = []
     checkpoint_filename = 'processor-checkpoint.ckpt'
 
-    def __init__(self, **kwargs):
+    def __init__(self, name=None, **kwargs):
         self._training = None
+        if name is None:
+            name = self.__class__.__name__
+        self._name = name
         super(ProcessorBase, self).__init__(**kwargs)
-        
+
+    @init_scope
     def init(self, model_dir, training):
         """Initialises Python and TensorFlow variables."""
         # super().init() should be called before the subclass' init()
         self.load(model_dir)
         self._training = training
-    
+
+    @transform_scope
     def transform(self, X):
         """Processes the data."""
         raise NotImplementedError
-        
+
+    @inverse_transform_scope
     def inverse_transform(self, X, y):
         """Performs the inverse transform on the data."""
         raise NotImplementedError
@@ -89,10 +120,12 @@ class ProcessorBase(tools.subclass_tracker('__name__')):
     
 class IdentityProcessor(ProcessorBase):
     """Performs no processing."""
-    
+
+    @transform_scope
     def transform(self, X):
         return tf.identity(X)
-    
+
+    @inverse_transform_scope
     def inverse_transform(self, X, y):
         return tf.identity(y)
   
@@ -108,14 +141,16 @@ class ScaleOverall(ProcessorBase):
         self.extent = 1.0
         self._started = False
         super(ScaleOverall, self).__init__(**kwargs)
-        
+
+    @init_scope
     def init(self, model_dir, training):
         super(ScaleOverall, self).init(model_dir, training)
         self.momentum_tf = tf.Variable(self.momentum, trainable=False, dtype=tf.float64)
         self.mean_tf = tf.Variable(self.mean, trainable=False, dtype=tf.float64)
         self.extent_tf = tf.Variable(self.extent, trainable=False, dtype=tf.float64)
         self._started_tf = tf.Variable(self._started, trainable=False)
-        
+
+    @transform_scope
     def transform(self, X):
         def first_time():
             assignment = self._started_tf.assign(True)
@@ -139,7 +174,8 @@ class ScaleOverall(ProcessorBase):
             mean, extent = self.mean_tf, self.extent_tf
 
         return (X - mean) / extent
-    
+
+    @inverse_transform_scope
     def inverse_transform(self, X, y):
         return (y * self.extent) + self.mean
     
@@ -157,14 +193,16 @@ class NormalisationOverall(ProcessorBase):
         self.stddev = 1.0
         self._started = False
         super(NormalisationOverall, self).__init__(**kwargs)
-        
+
+    @init_scope
     def init(self, model_dir, training):
         super(NormalisationOverall, self).init(model_dir, training)
         self.momentum_tf = tf.Variable(self.momentum, trainable=False, dtype=tf.float64)
         self.mean_tf = tf.Variable(self.mean, trainable=False, dtype=tf.float64)
         self.stddev_tf = tf.Variable(self.stddev, trainable=False, dtype=tf.float64)
         self._started_tf = tf.Variable(self._started, trainable=False)
-        
+
+    @transform_scope
     def transform(self, X):
         def first_time():
             assignment = self._started_tf.assign(True)
@@ -188,7 +226,8 @@ class NormalisationOverall(ProcessorBase):
             mean, stddev = self.mean_tf, self.stddev_tf
 
         return (X - mean) / stddev
-    
+
+    @inverse_transform_scope
     def inverse_transform(self, X, y):
         return (y * self.stddev) + self.mean
 

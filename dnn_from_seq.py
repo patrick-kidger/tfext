@@ -26,9 +26,10 @@ def dropout(*args, **kwargs):
 
 
 class Subnetwork:
-    def __init__(self, **kwargs):
+    def __init__(self, name=None, **kwargs):
         self._layer_funcs = []
         self._layer_train = []
+        self._name = name
         super(Subnetwork, self).__init__(**kwargs)
 
     def add(self, layer):
@@ -42,14 +43,15 @@ class Subnetwork:
         self._layer_train[-1] = True
 
     def __call__(self, inputs, training=False):
-        prev_layer = inputs
+        with tf.variable_scope(self._name, self.__class__.__name__):
+            prev_layer = inputs
 
-        for layer_func, train in zip(self._layer_funcs, self._layer_train):
-            if train:
-                layer = layer_func(inputs=prev_layer, training=training)
-            else:
-                layer = layer_func(inputs=prev_layer)
-            prev_layer = layer
+            for layer_func, train in zip(self._layer_funcs, self._layer_train):
+                if train:
+                    layer = layer_func(inputs=prev_layer, training=training)
+                else:
+                    layer = layer_func(inputs=prev_layer)
+                prev_layer = layer
 
         return prev_layer
 
@@ -59,8 +61,8 @@ class Subnetwork:
 
         Arguments:
         :[int] hidden_units: A list of integers describing the number of neurons in each hidden layer.
-        :int logits: The number of output logits. Set to 0 to not use any logits (and expose the last hidden layer
-            instead)
+        :int logits: The number of output logits. Set to anything Falsey to not use any logits (and expose the
+            last hidden layer instead)
         :activation: The activation function for the hidden units. Defaults to tf.nn.relu.
         :float drop_rate: A number in the interval [0, 1) for the drop rate. Defaults to 0.
         """
@@ -71,7 +73,7 @@ class Subnetwork:
             self.add(dense(units=units, activation=activation, kernel_initializer=kernel_initializer))
             if drop_rate != 0:
                 self.add_train(dropout(rate=drop_rate))
-        if logits != 0:
+        if not logits:
             self.add(dense(units=logits, kernel_initializer=kernel_initializer))
 
         return self
