@@ -25,10 +25,70 @@ def dropout(*args, **kwargs):
     return dropout
 
 
+class Subnetwork:
+    def __init__(self, **kwargs):
+        self._layer_funcs = []
+        self._layer_train = []
+        super(Subnetwork, self).__init__(**kwargs)
+
+    def add(self, layer):
+        """Add a layer to the network."""
+        self._layer_funcs.append(layer)
+        self._layer_train.append(False)
+
+    def add_train(self, layer):
+        """Add a layer to the network which needs to know if the network is in training or not."""
+        self.add(layer)
+        self._layer_train[-1] = True
+
+    def __call__(self, inputs, training=False):
+        prev_layer = inputs
+
+        for layer_func, train in zip(self._layer_funcs, self._layer_train):
+            if train:
+                layer = layer_func(inputs=prev_layer, training=training)
+            else:
+                layer = layer_func(inputs=prev_layer)
+            prev_layer = layer
+
+        return prev_layer
+
+    @classmethod
+    def define_dnn(cls, hidden_units, logits, activation=tf.nn.relu, drop_rate=0.0):
+        """Simple shortcut for defining a DNN via the Subnetwork interface.
+
+        Arguments:
+        :[int] hidden_units: A list of integers describing the number of neurons in each hidden layer.
+        :int logits: The number of output logits. Set to 0 to not use any logits (and expose the last hidden layer
+            instead)
+        :activation: The activation function for the hidden units. Defaults to tf.nn.relu.
+        :float drop_rate: A number in the interval [0, 1) for the drop rate. Defaults to 0.
+        """
+
+        self = cls()
+        kernel_initializer = tfi.truncated_normal(mean=0.0, stddev=0.05)
+        for units in hidden_units:
+            self.add(dense(units=units, activation=activation, kernel_initializer=kernel_initializer))
+            if drop_rate != 0:
+                self.add_train(dropout(rate=drop_rate))
+        if logits != 0:
+            self.add(dense(units=logits, kernel_initializer=kernel_initializer))
+
+        return self
+
+
+def concat(*subnetworks):
+    def concat_wrapper(inputs, training=False):
+        logits = [subnetwork(inputs=inputs, training=training) for subnetwork in subnetworks]
+        return tf.concat(logits, 1)  # axis 0 is the batch size
+
+    return concat_wrapper
+
+
 # Keras-inspired nice interface, just without the slow speed and lack of 
 # multicore functionality of Keras...
 # (Plus it allows us to integrate our preprocessing)
-class Network:
+class Network(Subnetwork):
     """Defines a neural network. Expected usage is roughly:
     >>> model = Network()
     >>> model.add(dense(units=100, activation=tf.nn.relu))
@@ -47,23 +107,11 @@ class Network:
     >>> dnn.evaluate(...)
     """
     
-    def __init__(self):
-        """Creates a Network. See Network.__doc__ for more info."""
-        self._layer_funcs = []
-        self._layer_train = []
+    def __init__(self, **kwargs):
+        super(Network, self).__init__(**kwargs)
         self.processor = lambda: pc.IdentityProcessor()
         self.model_dir = None
         self.compile_kwargs = tools.Object()
-        
-    def add(self, layer):
-        """Add a layer to the network."""
-        self._layer_funcs.append(layer)
-        self._layer_train.append(False)
-        
-    def add_train(self, layer):
-        """Add a layer to the network which needs to know if the network is in training or not."""
-        self.add(layer)
-        self._layer_train[-1] = True
 
     def register_processor(self, processor):
         """Used to set a :processor: to apply preprocessing to the input data."""
@@ -116,24 +164,9 @@ class Network:
             
             # Apply any preprocessing to the features
             processed_features = processor.transform(features)
-            
-            # First layer is the feature inputs.
-            layers = [processed_features]
-            
-            for prev_layer, layer_func, train in zip(layers, self._layer_funcs, 
-                                                     self._layer_train):
-                if train:
-                    layer = layer_func(inputs=prev_layer, 
-                                       training=mode == tfe.ModeKeys.TRAIN)
-                else:
-                    layer = layer_func(inputs=prev_layer)
-                    
-                # Deliberately using the generator nature of zip to add elements
-                # to the layers list as we're iterating through it.
-                # https://media.giphy.com/media/3oz8xtBx06mcZWoNJm/giphy.gif
-                layers.append(layer)
-                
-            logits = layers[-1]
+
+            logits = self(inputs=processed_features, training=mode == tfe.ModeKeys.TRAIN)
+
             predicted_labels = processor.inverse_transform(features, logits)
             
             if mode == tfe.ModeKeys.PREDICT:
@@ -181,65 +214,17 @@ class Network:
         (Mostly useful as a way of integrating preprocessing, which the usual DNNRegressor does not allow.)
 
         Arguments:
-        :[int] hidden_units: A list of integers describing the number of neurons in each hidden layer.
-        :int logits: The number of output logits.
-        :activation: The activation function for the hidden units. Defaults to tf.nn.relu.
-        :float drop_rate: A number in the interval [0, 1) for the drop rate. Defaults to 0.
         :processor: A processor for pre- and post-postprocessing the data. Should be a function of no arguments
             returning a subclass of ProcessorBase.
         :str model_dir: A string describing the directory to save details about the trained model in.
+
+        Other arguments as for Subnetwork.define_dnn.__doc__.
         """
 
-        self = cls()
+        self = super(Network, cls).define_dnn(hidden_units, logits, activation, drop_rate)
         self.register_processor(processor)
         self.register_model_dir(model_dir)
-        kernel_initializer = tfi.truncated_normal(mean=0.0, stddev=0.05)
-        for units in hidden_units:
-            self.add(dense(units=units, activation=activation, kernel_initializer=kernel_initializer))
-            if drop_rate != 0:
-                self.add_train(dropout(rate=drop_rate))
-        self.add(dense(units=logits, kernel_initializer=kernel_initializer))
-
         return self
-
-
-class Subnetwork:
-
-    def __init__(self):
-        self._layer_funcs = []
-        self._layer_train = []
-
-    def add(self, layer):
-        self._layer_funcs.append(layer)
-        self._layer_train.append(False)
-
-    def add_train(self, layer):
-        self.add(layer)
-        self._layer_train[-1] = True
-
-    def __call__(self, inputs, training=False):
-        layers = [inputs]
-
-        for prev_layer, layer_func, train in zip(layers, self._layer_funcs,
-                                                 self._layer_train):
-            if train:
-                layer = layer_func(inputs=prev_layer, training=training)
-            else:
-                layer = layer_func(inputs=prev_layer)
-
-            # Deliberately using the generator nature of zip to add elements
-            # to the layers list as we're iterating through it.
-            # https://media.giphy.com/media/3oz8xtBx06mcZWoNJm/giphy.gif
-            layers.append(layer)
-
-        return layers[-1]
-
-
-def concat(*subnetworks):
-    def concat_wrapper(inputs, training=False):
-        logits = [subnetwork(inputs=inputs, training=training) for subnetwork in subnetworks]
-        return tf.concat(logits, 1)  # axis 0 is the batch size
-    return concat_wrapper
 
 
 # TODO? Remove? It's not a terribly useful function, and the docstring is out of date.
