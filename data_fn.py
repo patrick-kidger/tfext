@@ -6,8 +6,10 @@ import numpy as np
 
 
 def batch_single(data_fn):
-    X, y = data_fn()
-    return lambda: (np.array([X]), np.array([y]))
+    def wrapper():
+        X, y = data_fn()
+        return np.array([X]), np.array([y])
+    return wrapper
 
 
 def identity():

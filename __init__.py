@@ -15,16 +15,22 @@ from .data_fn import (batch_single,
 from .dnn_from_folder import (model_from_model_dir,
                               models_from_dir)
 
-from .dnn_from_seq import (dense,
-                           dropout,
-                           Network,
-                           create_dnn,
-                           model_dir_str)
-
 from .ensemble import RegressorAverager
 
 from .evaluation import (eval_regressor,
                          eval_regressors)
+
+from .network import (DEBUG,
+                      dense,
+                      dropout,
+                      RememberTensor,
+                      concat,
+                      DebugEstimator,
+                      debug,
+                      Subnetwork,
+                      Network,
+                      create_dnn,
+                      model_dir_str)
 
 from .processor import (ProcessorBase,
                         IdentityProcessor,
