@@ -5,7 +5,7 @@ import tensorflow as tf
 import tools
 tflog = tf.logging
 
-from . import batch_data as dg
+from . import batch_data as bd
 
 
 def _eval_regressor(regressor, X, y):
@@ -14,7 +14,7 @@ def _eval_regressor(regressor, X, y):
     if hasattr(regressor, 'no_tf'):
         input_fn = lambda: (X, y)
     else:
-        input_fn = dg.BatchData.to_dataset((X, y))
+        input_fn = bd.BatchData.to_dataset((X, y))
 
     predictor = regressor.predict(input_fn=input_fn,
                                   yield_single_examples=False)
@@ -50,11 +50,24 @@ def _eval_regressors(regressors, X, y, names=None):
 
 def eval_regressor(regressor, data_fn, batch_size=1):
     """Evaluates a regressor on some test data of size :batch_size: generated from :data_fn:."""
-    X, y = dg.BatchData.batch(data_fn, batch_size)
+    X, y = bd.BatchData.batch(data_fn, batch_size)
     return _eval_regressor(regressor, X, y)
 
 
 def eval_regressors(regressors, data_fn, batch_size=1, names=None):
     """Evaluates an iterable of regressors on some test data of size :batch_size: generated from :data_fn:."""
-    X, y = dg.BatchData.batch(data_fn, batch_size)
+    X, y = bd.BatchData.batch(data_fn, batch_size)
     return _eval_regressors(regressors, X, y, names=names)
+
+
+def regressor_as_func(regressor):
+    """Converts a regressor to a Python function that can be called in the normal manner."""
+    def as_func(*args):
+        def data_fn():
+            return args, None
+        X, y = bd.BatchData.batch(data_fn=data_fn, batch_size=1)
+        input_fn = bd.BatchData.to_dataset((X, y))
+        predictor = regressor.predict(input_fn=input_fn, yield_single_examples=False)
+        prediction = next(predictor)
+        return prediction[0]  # unpack it from its batch size of 1
+    return as_func
