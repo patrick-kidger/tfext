@@ -7,7 +7,8 @@ from .activation import (concat_activations,
                          celu,
                          cselu)
 
-from .batch_data import BatchData
+from .batch_data import (BatchData,
+                         TerminatedBatchData)
 
 from .data_fn import (batch_single,
                       identity)
