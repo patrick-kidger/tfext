@@ -64,7 +64,7 @@ def regressor_as_func(regressor):
     """Converts a regressor to a Python function that can be called in the normal manner."""
     def as_func(*args):
         def data_fn():
-            return args, None
+            return np.array(args), np.array(0)
         X, y = bd.BatchData.batch(data_fn=data_fn, batch_size=1)
         input_fn = bd.BatchData.to_dataset((X, y))
         predictor = regressor.predict(input_fn=input_fn, yield_single_examples=False)
@@ -88,7 +88,7 @@ def regressor_as_func_multi(regressor):
         def data_fn():
             nonlocal index
             index += 1
-            return args[index], None
+            return np.array(args[index]), np.array(0)
         X, y = bd.BatchData.batch(data_fn=data_fn, batch_size=len(args))
         input_fn = bd.BatchData.to_dataset((X, y))
         predictor = regressor.predict(input_fn=input_fn, yield_single_examples=False)

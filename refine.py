@@ -1,6 +1,6 @@
 import multiprocessing as mp
 import os
-import queue
+import queue as queue_lib
 import tools
 
 Def = tools.HasDefault  # Renamed so that our argument lists aren't massively long
@@ -46,10 +46,8 @@ def import_tf():
 
 # TODO: Find a really hard problem that we can't just train a FFNN to solve.
 # TODO: Test regressor_as_func
-# TODO: Test new multithreaded implementation
 # TODO: Figure out subtraining bottleneck
-
-num_processes = min(os.cpu_count(), 8)
+# TODO: Figure out what's going on with the TF stuff above. Something to do with tf.data.Dataset.from_generator, perhaps
 
 
 # Indirection so that we can specify these functions in defaults before they're actually available
@@ -64,13 +62,9 @@ def df_difficult(*args, **kwargs):
 defaults = tools.Record(hidden_units=(5, 5, 2), logits=1,
                         initial_sub_hidden_units=(2, 2), initial_sub_logits=1,
                         sub_hidden_units=(5, 5), sub_logits=1,
-                        activation=tf_nn_relu, data_fn=df_difficult)
-simple_train_steps = 10000
-sub_train_steps = 2000
-sub_train_log_freq = 100
-fractal_train_steps = 5000
-
-log_steps = 1000
+                        simple_train_steps=10000, sub_train_steps=2000, fractal_train_steps=5000,
+                        activation=tf_nn_relu, data_fn=df_difficult, log_steps=1000,
+                        num_processes=min(os.cpu_count(), 8))
 
 
 @tools.with_defaults(defaults)
@@ -123,7 +117,8 @@ def create_fractal_dnn(hidden_units=Def, logits=Def, sub_hidden_units=Def, sub_l
             subnetwork.add(net.dense(units=unit, activation=activation, kernel_initializer=var_init,
                                      bias_initializer=var_init))
         if sub_logits:
-            subnetwork.add(net.dense(units=sub_logits, kernel_initializer=var_init, bias_initializer=var_init, name='logits'))
+            subnetwork.add(net.dense(units=sub_logits, kernel_initializer=var_init, bias_initializer=var_init,
+                                     name='logits'))
         subnetwork.add(net.RememberTensor(network=model, name=f'{subnetwork_name}_output'), debug=True)
 
 
@@ -136,14 +131,15 @@ def create_fractal_dnn(hidden_units=Def, logits=Def, sub_hidden_units=Def, sub_l
 
 # TODO: switch this to use train_adaptively?
 @tools.with_defaults(defaults)
-def train(dnn, data_fn=Def, max_steps=1000, hooks=None, batch_size=64, use_processes=True, num_processes=num_processes):
+def train(dnn, data_fn=Def, max_steps=1000, hooks=None, batch_size=64, use_processes=True, num_processes=Def):
     with bd.BatchData.context(data_fn=data_fn, batch_size=batch_size, num_processes=num_processes,
                               use_processes=use_processes) as input_fn:
         dnn.train(input_fn=input_fn, hooks=hooks, max_steps=max_steps)
 
 
 @tools.with_defaults(defaults)
-def eval_simple_dnn_for_subnetwork_training(queues, responders, simple_dnn, subnetwork_names, data_fn=Def):
+def eval_simple_dnn_for_subnetwork_training(queues, responders, simple_dnn, subnetwork_names, data_fn=Def,
+                                            num_processes=Def):
     predict_keys = [f'{sub}_{type_}' for sub in subnetwork_names for type_ in ('input', 'output')]
     with bd.BatchData.context(data_fn=data_fn, batch_size=64, num_processes=num_processes) as input_fn:
         predictor = simple_dnn.debug(input_fn=input_fn, predict_keys=predict_keys)
@@ -167,12 +163,13 @@ def eval_simple_dnn_for_subnetwork_training(queues, responders, simple_dnn, subn
                 y = prediction[f'{sub}_output']
                 try:
                     queues[sub].put_nowait((X, y))
-                except queue.Full:
+                except queue_lib.Full:
                     pass
 
 
 @tools.with_defaults(defaults)
-def train_subnetwork(queue, responder, subnetwork_name, sub_hidden_units=Def, sub_logits=Def, activation=Def):
+def train_subnetwork(queue, responder, subnetwork_name, sub_hidden_units=Def, sub_logits=Def, sub_train_steps=Def,
+                     activation=Def, log_steps=Def):
     import_tf()
 
     # Create the subnetworks
@@ -198,7 +195,8 @@ def set_fractal_weights(fractal_dnn, sub_dnns_weights, simple_dnn):
         saver = tft.import_meta_graph(checkpoint.model_checkpoint_path + '.meta')
         saver.restore(sess, checkpoint.model_checkpoint_path)
 
-        new_variable_values = simple_dnn.get_variable_values(filter=lambda var: 'Subnetwork' not in var and 'Network' in var,
+        new_variable_values = simple_dnn.get_variable_values(filter=lambda var: ('Subnetwork' not in var and
+                                                                                 'Network' in var),
                                                              map_name=lambda var: f'{var}:0')
         for sub_dnn_weight in sub_dnns_weights.values():
             new_variable_values.update(sub_dnn_weight)
@@ -215,7 +213,8 @@ def set_fractal_weights(fractal_dnn, sub_dnns_weights, simple_dnn):
 def overall(hidden_units=Def, logits=Def,
             initial_sub_hidden_units=Def, initial_sub_logits=Def,
             sub_hidden_units=Def, sub_logits=Def,
-            activation=Def, data_fn=Def, uuid=None):
+            simple_train_steps=Def, sub_train_steps=Def, fractal_train_steps=Def,
+            activation=Def, data_fn=Def, log_steps=Def, uuid=None):
 
     queues = {}
     responders = {}
@@ -229,7 +228,8 @@ def overall(hidden_units=Def, logits=Def,
         responder = mp.Queue(maxsize=1)
         queues[subnetwork_name] = queue
         responders[subnetwork_name] = responder
-        p = mp.Process(target=train_subnetwork, args=(queue, responder, subnetwork_name))
+        p = mp.Process(target=train_subnetwork, args=(queue, responder, subnetwork_name),
+                       kwargs={'sub_train_steps': sub_train_steps})
         processes.append(p)
         p.start()
 

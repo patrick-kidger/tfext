@@ -18,7 +18,8 @@ from .dnn_from_folder import (model_from_model_dir,
 from .ensemble import RegressorAverager
 
 from .evaluation import (eval_regressor,
-                         eval_regressors)
+                         eval_regressors,
+                         regressor_as_func)
 
 from .network import (DEBUG,
                       dense,
