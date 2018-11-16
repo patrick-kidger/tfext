@@ -71,3 +71,27 @@ def regressor_as_func(regressor):
         prediction = next(predictor)
         return prediction[0]  # unpack it from its batch size of 1
     return as_func
+
+
+def regressor_as_func_multi(regressor):
+    """Converts a regressor to a Python function that can be called multiples times simultaneously, by batching the
+    desired inputs together.
+
+    Each argument passed to the resulting function should be a tuple of the arguments for one function call.
+    Example:
+    >>> func = regressor_as_func_multi(regressor)
+    >>> func((1, 2), (3, 4), (5, 6))
+    calls regressor on the input (1, 2), then on the input (3, 4), the on the input (5, 6).
+    """
+    def as_func(*args):
+        index = -1
+        def data_fn():
+            nonlocal index
+            index += 1
+            return args[index], None
+        X, y = bd.BatchData.batch(data_fn=data_fn, batch_size=len(args))
+        input_fn = bd.BatchData.to_dataset((X, y))
+        predictor = regressor.predict(input_fn=input_fn, yield_single_examples=False)
+        prediction = next(predictor)
+        return prediction
+    return as_func

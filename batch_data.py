@@ -21,7 +21,7 @@ class BatchData:
     """
 
     def __init__(self, data_fn=None, batch_size=1, queue_size=50, X_dtype=None, y_dtype=None, X_shape=None,
-                 y_shape=None, num_processes=None, use_processes=True):
+                 y_shape=None, num_processes=None, use_processes=True,):
         """Initialising this class will create a queue of length :queue_size: and start populating it with the return
         values from :data_fn:. The argument :num_processes: determines how many processes will be used to call
         :data_fn:. (Note then that calls of :data_fn: might return their results out of order with the order that they
@@ -33,7 +33,7 @@ class BatchData:
         produced by data_fn. If any of them are set to None (their default), then :data_fn: will be called once to
         determine them automatically.
         """
-        
+
         self.batch_size = batch_size
         self.queue = mp.Queue(maxsize=queue_size)
 

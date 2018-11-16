@@ -44,8 +44,8 @@ def train_adaptively(model, input_fn, max_steps,
     learning_rate = learning_rate
     gradient_clip = gradient_clip
     if model.model_dir.startswith('/tmp'):
-        tflog.warn(f"The model's model_dir is {model.model_dir}, which appears to be temporary: adaptive training is"
-                   f"unlikely to work.")
+        tflog.warn(f"The model's model_dir is {model.model_dir}, which appears to be temporary: adaptive training "
+                   f"requires a persistent directory to work from, so this is unlikely to work.")
     while True:
         dnn = model.compile(gradient_clip=gradient_clip, learning_rate=learning_rate, **kwargs)
         os.makedirs(dnn.eval_dir(), exist_ok=True)
