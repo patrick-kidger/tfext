@@ -61,12 +61,13 @@ def eval_regressors(regressors, data_fn, batch_size=1, names=None):
 
 
 def regressor_as_func(regressor):
-    """Converts a regressor to a Python function that can be called in the normal manner."""
+    """Converts a regressor to a Python function that can be called in the normal manner. Note that calling it with
+    integers likely won't work - convert them to floats first!"""
     def as_func(*args):
         def data_fn():
-            return args
-        X, y = bd.BatchData.batch(data_fn=data_fn, batch_size=1)
-        input_fn = bd.BatchData.to_dataset((X, y))
+            return np.array(args), np.array(0.0)
+        val = bd.BatchData.batch(data_fn=data_fn, batch_size=1)
+        input_fn = bd.BatchData.to_dataset(val)
         predictor = regressor.predict(input_fn=input_fn, yield_single_examples=False)
         prediction = next(predictor)
         return prediction[0]  # unpack it from its batch size of 1
@@ -82,16 +83,18 @@ def regressor_as_func_multi(regressor):
     >>> func = regressor_as_func_multi(regressor)
     >>> func((1, 2), (3, 4), (5, 6))
     calls regressor on the input (1, 2), then on the input (3, 4), the on the input (5, 6).
+
+    Note that calling it with integers likely won't work - convert them to floats first!
     """
     def as_func(*args):
         index = -1
 
         def data_fn():
-            nonlocal index
+            nonlocal index  # yuck
             index += 1
-            return args[index]
-        X, y = bd.BatchData.batch(data_fn=data_fn, batch_size=len(args))
-        input_fn = bd.BatchData.to_dataset((X, y))
+            return np.array(args[index]), np.array(0.0)
+        val = bd.BatchData.batch(data_fn=data_fn, batch_size=len(args))
+        input_fn = bd.BatchData.to_dataset(val)
         predictor = regressor.predict(input_fn=input_fn, yield_single_examples=False)
         prediction = next(predictor)
         return prediction

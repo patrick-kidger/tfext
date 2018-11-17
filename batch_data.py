@@ -5,7 +5,10 @@ import multiprocessing as mp
 import numpy as np
 import os
 import tensorflow as tf
+import tools
+
 tfd = tf.data
+mp = mp.get_context(method='fork')
 
 
 class BatchData:
@@ -19,35 +22,50 @@ class BatchData:
     """
 
     def __init__(self, data_fn=None, batch_size=1, queue_size=50, dtype=None, shape=None, num_processes=None,
-                 use_processes=True,):
+                 use_processes=True):
         """Initialising this class will create a queue of length :queue_size: and start populating it with the return
         values from :data_fn:. The argument :num_processes: determines how many processes will be used to call
         :data_fn:. (Note then that calls of :data_fn: might return their results out of order with the order that they
-        were called in.) It defaults to the result of os.cpu_count().
+        were called in.) The default number of processes is os.cpu_count().
         
         
         The argument :batch_size: is used to determine the size of the batches that it later produces. The arguments
-        :X_dtype:, :y_dtype:, :X_shape: and :y_shape: should be the dtypes and shapes of the features (X) and labels (y)
-        produced by data_fn. If any of them are set to None (their default), then :data_fn: will be called once to
-        determine them automatically.
+        :dtype:, :shape: should be the dtype and shape of the result of :data_fn:, as a 'nested structure', that is a
+        structure which matches that of the result of :data_fn:. If either of them are set to None (the default), then
+        :data_fn: will be called once to attempt to determine these values automatically, but so far this automatic
+        inference only supports the simple cases of the result being either a numpy array or a tuple of numpy arrays.
         """
         if dtype is None or shape is None:
-            val = np.array(data_fn())
-            dtype = val.dtype
-            shape = val.shape
+            val = data_fn()
+            try:
+                dtype = val.dtype
+                shape = val.shape
+            except AttributeError:
+                try:
+                    dtype = tuple(v.dtype for v in val)
+                    shape = tuple(v.shape for v in val)
+                except AttributeError as e:
+                    raise CannotInferDtypeShape(e) from e
+
+            def data_generator():
+                yield val
+                while True:
+                    yield data_fn()
+
+        else:
+            def data_generator():
+                while True:
+                    yield data_fn()
+
         self.dtype = dtype
         self.shape = shape
 
         self.batch_size = batch_size
-        self.queue = mp.Queue(maxsize=queue_size)
         self.terminated = False
 
-        def data_generator():
-            yield val
-            while True:
-                yield np.array(data_fn())
-
         if use_processes:
+            self.queue = mp.Queue(maxsize=queue_size)
+
             def _gen_one_data(thread, max_thread):
                 def gen_one_data_wrapper():
                     if hasattr(data_fn, 'thread_prepare'):
@@ -121,13 +139,13 @@ class BatchData:
         """
         
         with cls.context(data_fn=data_fn) as self:
-            X_batch = []
-            y_batch = []
-            for _ in range(batch_size):
-                X, y = self.queue.get()
-                X_batch.append(X)
-                y_batch.append(y)
-            return np.array(X_batch), np.array(y_batch)
+            val = self.queue.get()
+            batches = tuple(np.array([v for _ in range(batch_size)]) for v in val)
+            for i in range(1, batch_size):
+                val = self.queue.get()
+                for j, v in enumerate(val):
+                    batches[j][i] = v
+            return batches
         
     @staticmethod
     def to_dataset(data):
@@ -136,11 +154,10 @@ class BatchData:
         return lambda: tfd.Dataset.from_tensors(data).repeat()
 
 
-class TerminatedBatchData(RuntimeError):
-    """Raised when an instance of BatchData has been
-    terminated and is then called again.
-    """
-    def __init__(self, msg=None):
-        if msg is None:
-            msg = 'BatchData has already been terminated.'
-        super(TerminatedBatchData, self).__init__(msg)
+class TerminatedBatchData(tools.DefaultException, RuntimeError):
+    """Raised when an instance of BatchData has been terminated and is then called again."""
+    default_msg = 'BatchData has already been terminated.'
+
+
+class CannotInferDtypeShape(RuntimeError):
+    """Raised when BatchData is unable to infer either the dtype or the shape of the data."""

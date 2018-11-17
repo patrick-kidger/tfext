@@ -1,4 +1,5 @@
 import multiprocessing as mp
+mp = mp.get_context('forkserver')
 import os
 import queue as queue_lib
 import tools
@@ -47,10 +48,8 @@ def import_tf():
 # TODO: Find a really hard problem that we can't just train a FFNN to solve.
 # TODO: Figure out subtraining bottleneck
 # TODO: Figure out what's going on with the TF stuff above. Something to do with tf.data.Dataset.from_generator, perhaps
-
-# TODO: Test the new batch_data changes (i.e. does everything still work; does regressor_as_func work?)
-# TODO: Tidy up batch_data?
-# TODO: Test regressor_as_func
+# TODO: Memory maps! (+subprocess or os.exec(?) to start the extra processes.) Hopefully allowing for program repetition
+# TODO:     and getting rid of these stupid import hacks
 
 # Indirection so that we can specify these functions in defaults before they're actually available
 def tf_nn_relu(*args, **kwargs):
