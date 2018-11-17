@@ -48,8 +48,7 @@ def import_tf():
 # TODO: Find a really hard problem that we can't just train a FFNN to solve.
 # TODO: Figure out subtraining bottleneck
 # TODO: Figure out what's going on with the TF stuff above. Something to do with tf.data.Dataset.from_generator, perhaps
-# TODO: Memory maps! (+subprocess or os.exec(?) to start the extra processes.) Hopefully allowing for program repetition
-# TODO:     and getting rid of these stupid import hacks
+# TODO: If forkserver works then get rid of this stupid import stuff, move process creation to later, and add logging back from the subprocesses
 
 # Indirection so that we can specify these functions in defaults before they're actually available
 def tf_nn_relu(*args, **kwargs):

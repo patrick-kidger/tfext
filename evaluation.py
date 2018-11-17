@@ -40,7 +40,7 @@ def _eval_regressors(regressors, X, y, names=None):
     results = []
     if names is None:
         names = [None] * len(regressors)
-    for regressor, name in zip(regressors, names):
+    for regressor, ame in zip(regressors, names):
         if name is not None:
             tflog.info("Evaluating {}".format(name))
         result = _eval_regressor(regressor, X, y)
