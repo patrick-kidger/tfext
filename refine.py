@@ -1,69 +1,37 @@
 import multiprocessing as mp
-mp = mp.get_context('forkserver')
 import os
 import queue as queue_lib
+import tensorflow as tf
 import tools
 
+from . import batch_data as bd
+from . import data_fn as df
+from . import hooks as hooks_lib
+from . import network as net
+
+# noinspection PyCallingNonCallable
+mp = mp.get_context('forkserver')  # The default 'fork' doesn't play nice with tensorflow
+
+tfe = tf.estimator
+tfi = tf.initializers
+tflog = tf.logging
+tft = tf.train
 Def = tools.HasDefault  # Renamed so that our argument lists aren't massively long
 
 
-tf = None
-bd = None
-df = None
-net = None
-tfe = None
-tfi = None
-tflog = None
-tft = None
-
-
-def import_tf():
-    # As you might have guessed, this is a bit hacky.
-    # Basically, we're looking to spin up several processes and train a model in each.
-    # Problem is, tensorflow doesn't like being copied over to each process
-    # So we have to import it separately in each process, and in particular, not import it in the main process until
-    # we've started the subprocesses.
-
-    # However, fun fact: uncomment the following three lines...
-
-    # import sys
-    # if 'tensorflow' in sys.modules:
-    #     raise RuntimeError('TensorFlow has already been imported!')
-
-    # ...and the RuntimeError will be raised.
-    # WTF?
-
-    global tf; import tensorflow as tf
-
-    global bd; from . import batch_data as bd
-    global df; from . import data_fn as df
-    global net; from . import network as net
-
-    global tfe; tfe = tf.estimator
-    global tfi; tfi = tf.initializers
-    global tflog; tflog = tf.logging
-    global tft; tft = tf.train
-
-
 # TODO: Find a really hard problem that we can't just train a FFNN to solve.
-# TODO: Figure out subtraining bottleneck
-# TODO: Figure out what's going on with the TF stuff above. Something to do with tf.data.Dataset.from_generator, perhaps
-# TODO: If forkserver works then get rid of this stupid import stuff, move process creation to later, and add logging back from the subprocesses
+# TODO: Figure out why subtraining takes longer than it should to go through all the steps
 
-# Indirection so that we can specify these functions in defaults before they're actually available
-def tf_nn_relu(*args, **kwargs):
-    return tf.nn.relu(*args, **kwargs)
-
-
-def df_difficult(*args, **kwargs):
-    return df.difficult(*args, **kwargs)
-
+# TODO: subnetwork logging not happening?
+# TODO: subtraining taking ages to start?
+# TODO: define_dnn not working?
 
 defaults = tools.Record(hidden_units=(5, 5, 2), logits=1,
                         initial_sub_hidden_units=(2, 2), initial_sub_logits=1,
                         sub_hidden_units=(5, 5), sub_logits=1,
                         simple_train_steps=10000, sub_train_steps=2000, fractal_train_steps=5000,
-                        activation=tf_nn_relu, data_fn=df_difficult, log_steps=1000,
+                        activation=tf.nn.relu, data_fn=df.difficult, log_steps=1000,
+                        subnetwork_logging=True,
                         num_processes=min(os.cpu_count(), 8))
 
 
@@ -123,10 +91,10 @@ def create_fractal_dnn(hidden_units=Def, logits=Def, sub_hidden_units=Def, sub_l
 
 
         return subnetwork
-    model, _ = create_network(subnetwork_fn=subnetwork_fn, hidden_units=hidden_units, logits=logits)
+    model_, _ = create_network(subnetwork_fn=subnetwork_fn, hidden_units=hidden_units, logits=logits)
     if uuid is not None:
-        model.register_model_dir(f'/tmp/fractal_{uuid}')
-    return model
+        model_.register_model_dir(f'/tmp/fractal_{uuid}')
+    return model_
 
 
 # TODO: switch this to use train_adaptively?
@@ -138,7 +106,7 @@ def train(dnn, data_fn=Def, max_steps=1000, hooks=None, batch_size=64, use_proce
 
 
 @tools.with_defaults(defaults)
-def eval_simple_dnn_for_subnetwork_training(queues, responders, simple_dnn, subnetwork_names, data_fn=Def,
+def eval_simple_dnn_for_subnetwork_training(queues, responders, loggers, simple_dnn, subnetwork_names, data_fn=Def,
                                             num_processes=Def):
     predict_keys = [f'{sub}_{type_}' for sub in subnetwork_names for type_ in ('input', 'output')]
     with bd.BatchData.context(data_fn=data_fn, batch_size=64, num_processes=num_processes) as input_fn:
@@ -146,17 +114,30 @@ def eval_simple_dnn_for_subnetwork_training(queues, responders, simple_dnn, subn
 
         subnetworks_not_yet_trained = set(subnetwork_names)
 
+        tflog.info(f'Starting training all subnetworks')
         while True:
             # Check if all of the subnetworks have finished training
-            for subnetwork in set(subnetworks_not_yet_trained):  # shallow copy
-                responder = responders[subnetwork]
+            for sub in set(subnetworks_not_yet_trained):  # shallow copy
+                responder = responders[sub]
                 if not responder.empty():
-                    subnetworks_not_yet_trained.remove(subnetwork)
+                    subnetworks_not_yet_trained.remove(sub)
 
             if not subnetworks_not_yet_trained:
                 tflog.info(f'Done training all subnetworks')
                 break
 
+            # Log out anything that the subnetworks want us to log
+            for sub in subnetworks_not_yet_trained:
+                if loggers[sub] is not None:
+                    while True:
+                        try:
+                            sub_log = loggers[sub].get_nowait()
+                        except queue_lib.Empty:
+                            break
+                        else:
+                            tflog.info(sub_log)
+
+            # Give the subnetworks data to train from
             prediction = next(predictor)
             for sub in subnetworks_not_yet_trained:
                 X = prediction[f'{sub}_input']
@@ -168,10 +149,8 @@ def eval_simple_dnn_for_subnetwork_training(queues, responders, simple_dnn, subn
 
 
 @tools.with_defaults(defaults)
-def train_subnetwork(queue, responder, subnetwork_name, sub_hidden_units=Def, sub_logits=Def, sub_train_steps=Def,
-                     activation=Def, log_steps=Def):
-    import_tf()
-
+def train_subnetwork(queue, responder, logger, subnetwork_name, sub_hidden_units=Def, sub_logits=Def,
+                     sub_train_steps=Def, activation=Def, log_steps=Def):
     # Create the subnetworks
     submodel = net.Network.define_dnn(hidden_units=sub_hidden_units, logits=sub_logits, activation=activation,
                                       model_dir=f'/tmp/{subnetwork_name}_' + str(tools.uuid(6)), name=subnetwork_name)
@@ -179,14 +158,23 @@ def train_subnetwork(queue, responder, subnetwork_name, sub_hidden_units=Def, su
 
     def data_fn():
         return queue.get()
+    if logger is not None:
+        hooks = [hooks_lib.GlobalStepLogger(logger=logger, subnetwork_name=subnetwork_name, every_steps=log_steps,
+                                            every_secs=None)]
+    else:
+        hooks = []
 
     # Train the subnetwork
+    if logger is not None:
+        logger.put_nowait(f'Started training {subnetwork_name}')
     # We're just pulling data off a queue so using processes is unnecessary here
-    train(dnn=sub_dnn, data_fn=data_fn, max_steps=sub_train_steps, use_processes=False)
+    train(dnn=sub_dnn, data_fn=data_fn, hooks=hooks, max_steps=sub_train_steps, use_processes=False)
+    if logger is not None:
+        logger.put_nowait(f'Finished training {subnetwork_name}')
 
     # Return the subnetwork
-    responder.put(sub_dnn.get_variable_values(filter=lambda var: var.startswith(subnetwork_name),
-                                              map_name=lambda var: f'Network/{var}:0'))
+    responder.put_nowait(sub_dnn.get_variable_values(filter_=lambda var: var.startswith(subnetwork_name),
+                                                     map_name=lambda var: f'Network/{var}:0'))
 
 
 def set_fractal_weights(fractal_dnn, sub_dnns_weights, simple_dnn):
@@ -195,9 +183,10 @@ def set_fractal_weights(fractal_dnn, sub_dnns_weights, simple_dnn):
         saver = tft.import_meta_graph(checkpoint.model_checkpoint_path + '.meta')
         saver.restore(sess, checkpoint.model_checkpoint_path)
 
-        new_variable_values = simple_dnn.get_variable_values(filter=lambda var: ('Subnetwork' not in var and
-                                                                                 'Network' in var),
-                                                             map_name=lambda var: f'{var}:0')
+        new_variable_values = simple_dnn.get_variable_values(filter_=lambda var: ('Subnetwork' not in var and
+                                                                                  'Network' in var),
+                                                             # Not using f-strings just to keep PyCharm happy
+                                                             map_name=lambda var: '{var}:0'.format(var=var))
         for sub_dnn_weight in sub_dnns_weights.values():
             new_variable_values.update(sub_dnn_weight)
         variables_to_update = [var for var in tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES)
@@ -214,26 +203,8 @@ def overall(hidden_units=Def, logits=Def,
             initial_sub_hidden_units=Def, initial_sub_logits=Def,
             sub_hidden_units=Def, sub_logits=Def,
             simple_train_steps=Def, sub_train_steps=Def, fractal_train_steps=Def,
-            activation=Def, data_fn=Def, log_steps=Def, uuid=None):
-
-    queues = {}
-    responders = {}
-    processes = []
-    _subnetwork_names = []
-    for layer_index, layer_size in enumerate(hidden_units):
-        for neuron in range(layer_size):
-            _subnetwork_names.append(f'Subnetwork_{layer_index}_{neuron}')
-    for subnetwork_name in _subnetwork_names:
-        queue = mp.Queue(maxsize=100)
-        responder = mp.Queue(maxsize=1)
-        queues[subnetwork_name] = queue
-        responders[subnetwork_name] = responder
-        p = mp.Process(target=train_subnetwork, args=(queue, responder, subnetwork_name),
-                       kwargs={'sub_train_steps': sub_train_steps})
-        processes.append(p)
-        p.start()
-
-    import_tf()
+            activation=Def, data_fn=Def, log_steps=Def, subnetwork_logging=None,
+            uuid=None):
 
     # Create and train the simple model
     simple_model, subnetwork_names = create_simple_dnn(hidden_units=hidden_units, logits=logits,
@@ -244,9 +215,25 @@ def overall(hidden_units=Def, logits=Def,
     train(dnn=simple_dnn, data_fn=data_fn, max_steps=simple_train_steps)
 
     # Create and train the submodels
+    queues = {}
+    responders = {}
+    loggers = {}
+    processes = []
+    for subnetwork_name in subnetwork_names:
+        queue = mp.Queue(maxsize=100)
+        responder = mp.Queue(maxsize=1)
+        logger = mp.Queue(maxsize=5) if subnetwork_logging else None
+        queues[subnetwork_name] = queue
+        responders[subnetwork_name] = responder
+        loggers[subnetwork_name] = logger
+        p = mp.Process(target=train_subnetwork, args=(queue, responder, logger, subnetwork_name),
+                       kwargs={'sub_train_steps': sub_train_steps})
+        processes.append(p)
+        p.start()
     try:
-        eval_simple_dnn_for_subnetwork_training(queues=queues, responders=responders, simple_dnn=simple_dnn,
-                                                subnetwork_names=subnetwork_names, data_fn=data_fn)
+        eval_simple_dnn_for_subnetwork_training(queues=queues, responders=responders, loggers=loggers,
+                                                simple_dnn=simple_dnn, subnetwork_names=subnetwork_names,
+                                                data_fn=data_fn)
         sub_dnns_weights = {subnetwork_name: responders[subnetwork_name].get() for subnetwork_name in subnetwork_names}
     finally:
         for p in processes:
@@ -266,7 +253,7 @@ def overall(hidden_units=Def, logits=Def,
 
     # An upper bound on the number of steps that we could possibly need to train our naive models for. If they still do
     # worse then our refinement system is definitely worth something.
-    naive_steps = simple_train_steps + fractal_train_steps + sum(defaults.hidden_units) * sub_train_steps
+    naive_steps = simple_train_steps + fractal_train_steps + sum(hidden_units) * sub_train_steps
 
     # Create and train the naive fractal model
     naive_fractal_model = create_fractal_dnn(hidden_units=hidden_units, logits=logits,

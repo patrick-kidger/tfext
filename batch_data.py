@@ -8,6 +8,7 @@ import tensorflow as tf
 import tools
 
 tfd = tf.data
+# noinspection PyCallingNonCallable
 mp = mp.get_context(method='fork')
 
 
@@ -120,7 +121,8 @@ class BatchData:
     @classmethod
     def context(cls, *args, **kwargs):
         """For use in with statements. Creates a BatchData and automatically terminates it afterwards."""
-        
+
+        # noinspection PyMethodParameters
         class _BatchDataContext:
             def __enter__(self_context):
                 self = cls(*args, **kwargs)

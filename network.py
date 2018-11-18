@@ -3,14 +3,16 @@
 import functools as ft
 import itertools as it
 import tensorflow as tf
+import tools
+
+from . import hooks as hooks_lib
+from . import processor as pc
+
 tfe = tf.estimator
 tfi = tf.initializers
 tfla = tf.layers
 tflo = tf.losses
 tft = tf.train
-import tools
-
-from . import processor as pc
 
 
 DEBUG = 'debug'
@@ -21,17 +23,17 @@ def dense(*args, **kwargs):
     recompiled Networks behave properly, by recreating neurons in a new graph.)
     """
 
-    def dense(*args_, **kwargs_):
+    def dense_(*args_, **kwargs_):
         return tfla.Dense(*args, **kwargs)(*args_, **kwargs_)
-    return dense
+    return dense_
 
 
 def dropout(*args, **kwargs):
     """Wrapper around tf.layers.Dropout. Wrapped fro the same reason as dense."""
 
-    def dropout(*args_, **kwargs_):
+    def dropout_(*args_, **kwargs_):
         return tfla.Dropout(*args, **kwargs)(*args_, **kwargs_)
-    return dropout
+    return dropout_
 
 
 class RememberTensor:
@@ -84,13 +86,13 @@ class DebugEstimator(tfe.Estimator):
         else:
             self._params['dynamic'] = tools.Object(debug=False)
 
-    def get_variable_values(self, filter=lambda var: True, map_name=lambda var: var, map_value=lambda var: var):
+    def get_variable_values(self, filter_=lambda var: True, map_name=lambda var: var, map_value=lambda var: var):
         """Gets a dictionary of variable names and values. May be passed a :filter: function to return only some values.
         May be passed :map_name: and/or :map_value: functions to apply to each variable name and/or value before
         returning. (Provided just as a straightforward convenience.)
         """
         return {map_name(var): map_value(self.get_variable_value(var))
-                for var in self.get_variable_names() if filter(var)}
+                for var in self.get_variable_names() if filter_(var)}
 
     def debug(self, input_fn, predict_keys=None, hooks=None, checkpoint_path=None, yield_single_examples=True):
         """As predict, but returns extra values. See DebugEstimator.__doc__ for more information."""
@@ -112,7 +114,7 @@ class DebugEstimator(tfe.Estimator):
         self._params['dynamic'].debug = False
 
 
-def debug(params):
+def debug_mode(params):
     """Convenience function for inspecting the :params: argument to determine if debug mode is enabled."""
     try:
         return params['dynamic'].debug
@@ -143,7 +145,7 @@ class Subnetwork:
         self._layer_params.append(params)
 
     def __call__(self, inputs, mode, params=None):
-        mode_eq_debug = debug(params)
+        mode_eq_debug = debug_mode(params)
         with tf.variable_scope(self._name, self.__class__.__name__):
             prev_layer = inputs
 
@@ -280,7 +282,7 @@ class Network(Subnetwork):
             # Apply postprocessing to the results
             predicted_labels = processor.inverse_transform(features, logits)
 
-            if debug(params):
+            if debug_mode(params):
                 results = dict(self.remembered.items())
                 results['y'] = predicted_labels
                 return tfe.EstimatorSpec(mode=mode, predictions=results)
@@ -312,7 +314,7 @@ class Network(Subnetwork):
                 if self.model_dir is None:
                     training_hooks = []
                 else:
-                    training_hooks = [pc.ProcessorSavingHook(processor, self.model_dir)]
+                    training_hooks = [hooks_lib.ProcessorSavingHook(processor, self.model_dir)]
                 return tfe.EstimatorSpec(mode=mode, loss=loss, train_op=train_op,
                                          training_hooks=training_hooks)
             
@@ -344,28 +346,6 @@ class Network(Subnetwork):
         self.register_model_dir(model_dir)
         return self
 
-
-# TODO? Remove? It's not a terribly useful function, and the docstring is out of date.
-def create_dnn(hidden_units, logits, activation=tf.nn.relu, drop_rate=0.0, processor=None, model_dir=None,
-               log_steps=100, **kwargs):
-    """Simple shortcut for creating a DNN via the Network interface.
-
-    (Mostly useful as a way of integrating preprocessing, which the usual DNNRegressor does not allow.)
-
-    Arguments:
-    :[int] hidden_units: A list of integers describing the number of neurons in each hidden layer.
-    :int logits: The number of output logits.
-    :activation: The activation function for the hidden units. Defaults to tf.nn.relu.
-    :float drop_rate: A number in the interval [0, 1) for the drop rate. Defaults to 0.
-    :int log_steps: How frequently to log results to stdout during training. Defaults to 1000.
-
-    Any further kwargs are passed on to the call to compile the Network, for example to specify a processor or model
-    directory.
-    """
-
-    model = Network.define_dnn(hidden_units, logits, activation, drop_rate, processor, model_dir)
-    return model.compile(config=tfe.RunConfig(log_step_count_steps=log_steps), **kwargs)
-    
 
 # TODO? Move? Doesn't really fit with the rest of this file any more.
 def model_dir_str(model_dir, hidden_units, logits, processor=lambda: pc.IdentityProcessor(),
