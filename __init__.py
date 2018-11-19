@@ -27,6 +27,8 @@ from .hooks import (ActionEverySecondOrStepHook,
                     ProcessorSavingHook,
                     GlobalStepLogger)
 
+from .logging import get_logger
+
 from .network import (DEBUG,
                       dense,
                       dropout,

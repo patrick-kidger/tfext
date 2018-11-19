@@ -7,6 +7,7 @@ import tools
 from . import batch_data as bd
 from . import data_fn as df
 from . import hooks as hooks_lib
+from . import logging
 from . import network as net
 
 # noinspection PyCallingNonCallable
@@ -14,16 +15,13 @@ mp = mp.get_context('forkserver')  # The default 'fork' doesn't play nice with t
 
 tfe = tf.estimator
 tfi = tf.initializers
-tflog = tf.logging
 tft = tf.train
 Def = tools.HasDefault  # Renamed so that our argument lists aren't massively long
-
+log = logging.get_logger('refine')
 
 # TODO: Find a really hard problem that we can't just train a FFNN to solve.
-# TODO: Figure out why subtraining takes longer than it should to go through all the steps
-
-# TODO: subnetwork logging not happening?
-# TODO: subtraining taking ages to start?
+# TODO: Check if subtraining has a bottleneck somewhere
+# TODO: Allow subtraining with only a limited number of threads
 # TODO: define_dnn not working?
 
 defaults = tools.Record(hidden_units=(5, 5, 2), logits=1,
@@ -114,7 +112,6 @@ def eval_simple_dnn_for_subnetwork_training(queues, responders, loggers, simple_
 
         subnetworks_not_yet_trained = set(subnetwork_names)
 
-        tflog.info(f'Starting training all subnetworks')
         while True:
             # Check if all of the subnetworks have finished training
             for sub in set(subnetworks_not_yet_trained):  # shallow copy
@@ -123,7 +120,6 @@ def eval_simple_dnn_for_subnetwork_training(queues, responders, loggers, simple_
                     subnetworks_not_yet_trained.remove(sub)
 
             if not subnetworks_not_yet_trained:
-                tflog.info(f'Done training all subnetworks')
                 break
 
             # Log out anything that the subnetworks want us to log
@@ -135,7 +131,7 @@ def eval_simple_dnn_for_subnetwork_training(queues, responders, loggers, simple_
                         except queue_lib.Empty:
                             break
                         else:
-                            tflog.info(sub_log)
+                            log.info(sub_log)
 
             # Give the subnetworks data to train from
             prediction = next(predictor)
@@ -159,7 +155,7 @@ def train_subnetwork(queue, responder, logger, subnetwork_name, sub_hidden_units
     def data_fn():
         return queue.get()
     if logger is not None:
-        hooks = [hooks_lib.GlobalStepLogger(logger=logger, subnetwork_name=subnetwork_name, every_steps=log_steps,
+        hooks = [hooks_lib.GlobalStepLogger(logger=logger, network_name=subnetwork_name, every_steps=log_steps,
                                             every_secs=None)]
     else:
         hooks = []
@@ -203,16 +199,18 @@ def overall(hidden_units=Def, logits=Def,
             initial_sub_hidden_units=Def, initial_sub_logits=Def,
             sub_hidden_units=Def, sub_logits=Def,
             simple_train_steps=Def, sub_train_steps=Def, fractal_train_steps=Def,
-            activation=Def, data_fn=Def, log_steps=Def, subnetwork_logging=None,
+            activation=Def, data_fn=Def, log_steps=Def, subnetwork_logging=Def,
             uuid=None):
 
     # Create and train the simple model
+    log.info('Training simple model')
     simple_model, subnetwork_names = create_simple_dnn(hidden_units=hidden_units, logits=logits,
                                                        initial_sub_hidden_units=initial_sub_hidden_units,
                                                        initial_sub_logits=initial_sub_logits,
                                                        activation=activation)
     simple_dnn = simple_model.compile(config=tfe.RunConfig(log_step_count_steps=log_steps))
     train(dnn=simple_dnn, data_fn=data_fn, max_steps=simple_train_steps)
+    log.info('Done training simple model')
 
     # Create and train the submodels
     queues = {}
@@ -230,6 +228,7 @@ def overall(hidden_units=Def, logits=Def,
                        kwargs={'sub_train_steps': sub_train_steps})
         processes.append(p)
         p.start()
+    log.info('Training all subnetworks')
     try:
         eval_simple_dnn_for_subnetwork_training(queues=queues, responders=responders, loggers=loggers,
                                                 simple_dnn=simple_dnn, subnetwork_names=subnetwork_names,
@@ -239,8 +238,10 @@ def overall(hidden_units=Def, logits=Def,
         for p in processes:
             p.terminate()
             p.join()
+    log.info('Done training all subnetworks')
 
     # Create and train the fractal model
+    log.info('Training fractal model')
     fractal_model = create_fractal_dnn(hidden_units=hidden_units, logits=logits, sub_hidden_units=sub_hidden_units,
                                        sub_logits=sub_logits, activation=activation, uuid=uuid)
     fractal_dnn = fractal_model.compile(config=tfe.RunConfig(log_step_count_steps=log_steps))
@@ -250,19 +251,23 @@ def overall(hidden_units=Def, logits=Def,
     # Now we start training it
     if fractal_train_steps > 1:
         train(dnn=fractal_dnn, data_fn=data_fn, max_steps=fractal_train_steps)
+    log.info('Done training fractal model')
 
     # An upper bound on the number of steps that we could possibly need to train our naive models for. If they still do
     # worse then our refinement system is definitely worth something.
-    naive_steps = simple_train_steps + fractal_train_steps + sum(hidden_units) * sub_train_steps
+    naive_steps = simple_train_steps + fractal_train_steps + sub_train_steps
 
     # Create and train the naive fractal model
+    log.info('Training naive fractal model')
     naive_fractal_model = create_fractal_dnn(hidden_units=hidden_units, logits=logits,
                                              sub_hidden_units=sub_hidden_units, sub_logits=sub_logits,
                                              activation=activation)
     naive_fractal_dnn = naive_fractal_model.compile(config=tfe.RunConfig(log_step_count_steps=log_steps))
     train(dnn=naive_fractal_dnn, data_fn=data_fn, max_steps=naive_steps)
+    log.info('Done training naive fractal model')
 
     # Create and train the naive fully connected model
+    log.info('Training naive fully connected model')
     naive_hidden_units = []
     for x in hidden_units:
         for y in sub_hidden_units:
@@ -270,6 +275,7 @@ def overall(hidden_units=Def, logits=Def,
     naive_simple_model = net.Network.define_dnn(hidden_units=naive_hidden_units, logits=logits, activation=activation)
     naive_simple_dnn = naive_simple_model.compile(config=tfe.RunConfig(log_step_count_steps=log_steps))
     train(dnn=naive_simple_dnn, data_fn=data_fn, max_steps=naive_steps)
+    log.info('Done training naive fully connected model')
 
     return tools.Record(fractal_dnn=fractal_dnn, simple_dnn=simple_dnn, naive_fractal_dnn=naive_fractal_dnn,
                         naive_simple_dnn=naive_simple_dnn)

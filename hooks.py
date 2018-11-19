@@ -9,9 +9,9 @@ class ActionEverySecondOrStepHook(tft.SessionRunHook):
     """
     # Adapted from the source code for tf.train.CheckpointSaverHook
 
-    def __init__(self, save_secs=600, save_steps=None, **kwargs):
-        self._timer = tft.SecondOrStepTimer(every_secs=save_secs,
-                                            every_steps=save_steps)
+    def __init__(self, every_secs=600, every_steps=None, **kwargs):
+        self._timer = tft.SecondOrStepTimer(every_secs=every_secs,
+                                            every_steps=every_steps)
         self._global_step_tensor = None
         super(ActionEverySecondOrStepHook, self).__init__(**kwargs)
 
@@ -55,10 +55,19 @@ class ProcessorSavingHook(ActionEverySecondOrStepHook):
         self.processor.save(session, step, self.model_dir)
 
 
-class GlobalStepLogger(tft.SessionRunHook):
-    def __init__(self, logger, subnetwork_name, **kwargs):
+class GlobalStepLogger(ActionEverySecondOrStepHook):
+    """Puts a log onto a queue every specified number of steps or seconds."""
+
+    def __init__(self, logger, network_name, **kwargs):
+        """Arguments:
+            logger: A Queue for putting the log results onto. Something else must have the responsibility of taking
+                    items off the queue.
+            network_name: The name of the network to state in the log messages.
+            save_secs: How often, in seconds, to log.
+            save_steps: How often, in steps, to log.
+            """
         self.logger = logger
-        self.subnetwork_name = subnetwork_name
+        self.subnetwork_name = network_name
         super(GlobalStepLogger, self).__init__(**kwargs)
 
     # noinspection PyUnusedLocal
